@@ -1,0 +1,6 @@
+{
+  "name": "LearnSphere TH - แพลตฟอร์มคอร์สเรียนออนไลน์",
+  "description": "แพลตฟอร์มการเรียนรู้ออนไลน์ระดับมืออาชีพ รองรับทุกอุปกรณ์ ระบบวิดีโออินเตอร์แอคทีฟ แบบทดสอบวัดผลก่อน-หลังเรียน ใบประกาศนียบัตรอัตโนมัติ และแดชบอร์ดสถิติ",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
