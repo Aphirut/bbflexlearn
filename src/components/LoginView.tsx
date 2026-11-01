@@ -43,7 +43,7 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
 
   const labelCls = 'block text-[15px] font-semibold leading-[1.7] text-slate-700 mb-1.5';
   const wrapCls =
-    'flex items-center gap-2.5 rounded-lg border border-slate-300 bg-white px-3.5 transition focus-within:border-teal-600 focus-within:ring-4 focus-within:ring-teal-600/10';
+    'flex items-center gap-2.5 rounded-lg border border-slate-300 bg-white px-3.5 transition focus-within:border-indigo-600 focus-within:ring-4 focus-within:ring-indigo-600/10';
   const inputCls =
     'w-full bg-transparent py-3 text-[15px] leading-[1.7] text-slate-900 placeholder:text-slate-400 focus:outline-none';
 
@@ -51,7 +51,7 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
     <div className="min-h-dvh grid lg:grid-cols-[1.05fr_1fr] bg-white pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       {/* ---------- Brand panel ---------- */}
       <aside
-        className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-[#0b2e35] text-white px-12 py-10 xl:px-16"
+        className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-[#0b1f4d] text-white px-12 py-10 xl:px-16"
         style={{
           backgroundImage:
             'radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px)',
@@ -59,12 +59,12 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
         }}
       >
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-lg bg-teal-500 text-white flex items-center justify-center shrink-0">
+          <div className="w-11 h-11 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0">
             <GraduationCap className="w-6 h-6" />
           </div>
           <div className="leading-[1.7]">
             <p className="font-bold text-xl tracking-tight">BB FlexLearn</p>
-            <p className="text-sm text-teal-200/80">ศูนย์ส่งเสริมการเรียนรู้ระดับอำเภอบ้านบึง</p>
+            <p className="text-sm text-indigo-200/80">ศูนย์ส่งเสริมการเรียนรู้ระดับอำเภอบ้านบึง</p>
           </div>
         </div>
 
@@ -83,7 +83,7 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
           <ul className="mt-10 space-y-5">
             {FEATURES.map(({ icon: Icon, title, desc }) => (
               <li key={title} className="flex gap-4">
-                <span className="mt-0.5 w-10 h-10 shrink-0 rounded-lg bg-white/[0.07] border border-white/10 flex items-center justify-center text-teal-300">
+                <span className="mt-0.5 w-10 h-10 shrink-0 rounded-lg bg-white/[0.07] border border-white/10 flex items-center justify-center text-indigo-300">
                   <Icon className="w-5 h-5" />
                 </span>
                 <span>
@@ -109,7 +109,7 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
             <p className="text-xs text-slate-400 mt-0.5">เรียนจบตามเป้าหมาย</p>
           </div>
           <p className="ml-auto hidden xl:flex items-center gap-1.5 text-xs text-slate-400">
-            <ShieldCheck className="w-4 h-4 text-teal-400" />
+            <ShieldCheck className="w-4 h-4 text-indigo-400" />
             ข้อมูลของคุณปลอดภัย
           </p>
         </div>
@@ -120,7 +120,7 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
         <div className="w-full max-w-[420px]">
           {/* Mobile brand */}
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-11 h-11 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
               <GraduationCap className="w-6 h-6" />
             </div>
             <div className="leading-[1.7]">
@@ -222,7 +222,7 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
-                  className="shrink-0 rounded p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                  className="shrink-0 rounded p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                 >
                   {showPassword ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
                 </button>
@@ -240,7 +240,7 @@ export const LoginView: React.FC<{ onAuthed: () => void; notice?: string }> = ({
 
             <button
               disabled={busy}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-teal-600 text-white text-sm font-semibold py-3 transition hover:bg-teal-700 active:bg-teal-800 disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-teal-600/30"
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold py-3 transition hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-indigo-600/30"
             >
               {busy ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
