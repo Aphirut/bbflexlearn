@@ -1,14 +1,41 @@
 import React, { useRef, useState } from 'react';
 import { ImagePlus, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { ApiError, uploadAvatar } from '../api';
+import { ApiError, uploadAvatar, changePassword, logoutAllDevices } from '../api';
 
 interface ProfileEditModalProps {
   onClose: () => void;
 }
 
 export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ onClose }) => {
-  const { currentUser, updateProfile } = useApp();
+  const { currentUser, updateProfile, logout } = useApp();
+  const [curPw, setCurPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [newPw2, setNewPw2] = useState('');
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pwBusy, setPwBusy] = useState(false);
+
+  const handleChangePassword = async () => {
+    setPwMsg(null);
+    if (newPw.length < 8) return setPwMsg({ ok: false, text: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร' });
+    if (newPw !== newPw2) return setPwMsg({ ok: false, text: 'ยืนยันรหัสผ่านใหม่ไม่ตรงกัน' });
+    setPwBusy(true);
+    try {
+      await changePassword(curPw, newPw);
+      setCurPw(''); setNewPw(''); setNewPw2('');
+      setPwMsg({ ok: true, text: 'เปลี่ยนรหัสผ่านแล้ว อุปกรณ์อื่นที่ล็อกอินค้างไว้จะถูกออกจากระบบ' });
+    } catch (e) {
+      setPwMsg({ ok: false, text: e instanceof ApiError ? e.message : 'เปลี่ยนรหัสผ่านไม่สำเร็จ' });
+    } finally {
+      setPwBusy(false);
+    }
+  };
+
+  const handleLogoutAll = async () => {
+    if (!window.confirm('ออกจากระบบทุกอุปกรณ์ รวมถึงเครื่องนี้?')) return;
+    try { await logoutAllDevices(); } catch { /* ออกจากระบบเครื่องนี้ต่อไป */ }
+    logout();
+  };
   const [name, setName] = useState(currentUser.name);
   const [avatar, setAvatar] = useState(currentUser.avatar || '');
   const [department, setDepartment] = useState(currentUser.department || '');
@@ -159,6 +186,32 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ onClose }) =
         </div>
 
         {error && <p role="alert" className="text-[11px] font-medium text-rose-600">{error}</p>}
+
+        <details className="rounded-lg border border-slate-200 p-3 text-xs">
+          <summary className="cursor-pointer font-semibold text-slate-700">เปลี่ยนรหัสผ่าน / ความปลอดภัย</summary>
+          <div className="mt-3 space-y-2">
+            <input type="password" autoComplete="current-password" placeholder="รหัสผ่านปัจจุบัน" value={curPw}
+              onChange={e => setCurPw(e.target.value)}
+              className="w-full p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:border-indigo-600" />
+            <input type="password" autoComplete="new-password" placeholder="รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)" value={newPw}
+              onChange={e => setNewPw(e.target.value)}
+              className="w-full p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:border-indigo-600" />
+            <input type="password" autoComplete="new-password" placeholder="ยืนยันรหัสผ่านใหม่" value={newPw2}
+              onChange={e => setNewPw2(e.target.value)}
+              className="w-full p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:border-indigo-600" />
+            {pwMsg && <p role="status" className={`text-[11px] font-medium ${pwMsg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{pwMsg.text}</p>}
+            <div className="flex flex-wrap justify-between gap-2 pt-1">
+              <button type="button" onClick={handleLogoutAll}
+                className="px-3 py-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50">
+                ออกจากระบบทุกอุปกรณ์
+              </button>
+              <button type="button" onClick={handleChangePassword} disabled={pwBusy || !curPw || !newPw}
+                className="px-3 py-2 rounded-lg bg-slate-800 text-white font-semibold hover:bg-slate-900 disabled:opacity-50">
+                {pwBusy ? 'กำลังเปลี่ยน...' : 'เปลี่ยนรหัสผ่าน'}
+              </button>
+            </div>
+          </div>
+        </details>
 
         <div className="pt-2 flex justify-end gap-2">
           <button

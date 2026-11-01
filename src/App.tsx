@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ApiError, fetchBootstrap, getToken, setToken, type Bootstrap } from './api';
+import { ApiError, AUTH_EXPIRED_EVENT, fetchBootstrap, getToken, setToken, type Bootstrap } from './api';
 import { LoginView } from './components/LoginView';
 import { AppProvider, useApp, getCourseCategories } from './context/AppContext';
 import { Header } from './components/Header';
@@ -608,6 +608,11 @@ export default function App() {
       .finally(() => setLoading(false));
   };
   useEffect(() => { if (getToken()) load(); else setLoading(false); }, []);
+  useEffect(() => {
+    const onExpired = () => { setToken(null); setBoot(null); setNotice('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่'); };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
 
   if (loading) {
     return (

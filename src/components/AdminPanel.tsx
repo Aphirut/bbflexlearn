@@ -4,6 +4,7 @@ import { Course, UserRole } from '../types';
 import { AppLogo, PRESET_LOGOS, LOGO_BG_COLORS } from './AppLogo';
 import { LessonCoverField, normalizeImageUrl } from './LessonCoverField';
 import { SubLessonsEditor } from './SubLessonsEditor';
+import { adminResetPassword, ApiError } from '../api';
 import { LessonMaterialsField } from './LessonMaterialsField';
 import type { LessonResource, SubLesson } from '../types';
 import {
@@ -13,6 +14,7 @@ import {
   Mail,
   Plus,
   Trash2,
+  KeyRound,
   Send,
   AlertCircle,
   Lightbulb,
@@ -941,6 +943,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onPreviewEmail }) => {
                     </td>
                     <td className="py-3 px-3 text-slate-500 font-mono">{u.createdAt}</td>
                     <td className="py-3 px-3 text-right">
+                      {u.id !== currentUser.id && (
+                        <button
+                          onClick={async () => {
+                            const pw = window.prompt(`ตั้งรหัสผ่านใหม่ให้ ${u.name} (อย่างน้อย 8 ตัวอักษร)\nผู้ใช้จะถูกออกจากระบบทุกอุปกรณ์`);
+                            if (pw == null) return;
+                            if (pw.length < 8) { window.alert('รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร'); return; }
+                            try { await adminResetPassword(u.id, pw); window.alert('ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว'); }
+                            catch (e) { window.alert(e instanceof ApiError ? e.message : 'ตั้งรหัสผ่านไม่สำเร็จ'); }
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded hover:bg-slate-100"
+                          title="ตั้งรหัสผ่านใหม่"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
+                      )}
                       {u.id !== currentUser.id && (
                         <button
                           onClick={() => deleteUser(u.id)}

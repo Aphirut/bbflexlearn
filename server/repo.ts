@@ -22,6 +22,13 @@ export async function updateUserProfile(u: UserRow, allowRole: boolean) {
       enrolled_course_ids=${JSON.stringify(u.enrolledCourseIds || [])} WHERE id=${u.id}`;
   }
 }
+/** เปลี่ยน token_version ทำให้ token ที่ออกไปก่อนหน้าใช้ไม่ได้ทันที */
+export async function bumpTokenVersion(id: string) {
+  await sql`UPDATE users SET token_version = token_version + 1 WHERE id=${id}`;
+}
+export async function setPassword(id: string, passwordHash: string) {
+  await sql`UPDATE users SET password_hash=${passwordHash}, token_version = token_version + 1 WHERE id=${id}`;
+}
 export const deleteUser = async (id: string) => {
   await sql`DELETE FROM notes WHERE user_id=${id}`;
   await sql`DELETE FROM progress WHERE user_id=${id}`;

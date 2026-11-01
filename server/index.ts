@@ -16,8 +16,9 @@ const jwtKey = new TextEncoder().encode(JWT_SECRET);
 type Role = 'admin' | 'teacher' | 'student';
 type AuthUser = { id: string; email: string; role: Role };
 
-const signToken = (u: AuthUser) =>
-  new SignJWT({ email: u.email, role: u.role })
+// tv = token_version ของผู้ใช้ตอนออก token; เปลี่ยนรหัสผ่าน/role/ออกจากระบบทุกเครื่อง จะเพิ่มค่านี้ทำให้ token เก่าใช้ไม่ได้
+const signToken = (u: AuthUser & { tokenVersion?: number }) =>
+  new SignJWT({ email: u.email, role: u.role, tv: u.tokenVersion ?? 0 })
     .setSubject(u.id)
     .setExpirationTime('7d')
     .setProtectedHeader({ alg: 'HS256' })
@@ -51,15 +52,18 @@ const emailKey = (email: unknown) => `email:${String(email || '').trim().toLower
 async function requireAuth(request: Request): Promise<AuthUser> {
   const header = request.headers.get('authorization') || '';
   let id: string;
+  let tv: number;
   try {
-    const { payload } = await jwtVerify(header.replace(/^Bearer\s+/, ''), jwtKey);
+    const { payload } = await jwtVerify(header.replace(/^Bearer\s+/, ''), jwtKey, { algorithms: ['HS256'] });
     id = String(payload.sub || '');
+    tv = Number(payload.tv ?? 0);
     if (!id) throw new Error('no sub');
   } catch {
     throw new HttpError(401, { error: 'กรุณาเข้าสู่ระบบ' });
   }
   const row = await repo.getUserById(id);
-  if (!row) throw new HttpError(401, { error: 'กรุณาเข้าสู่ระบบ' });
+  if (!row || Number(row.token_version ?? 0) !== tv)
+    throw new HttpError(401, { error: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่' });
   return { id: row.id, email: row.email, role: row.role as Role };
 }
 
@@ -159,7 +163,45 @@ const app = new Elysia()
       return status(401, { error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
     }
     failures.delete(ek);
-    return { token: await signToken({ id: row.id, email: row.email, role: row.role }) };
+    return { token: await signToken({ id: row.id, email: row.email, role: row.role, tokenVersion: Number(row.token_version ?? 0) }) };
+  })
+
+  // เปลี่ยนรหัสผ่านตัวเอง: ต้องยืนยันรหัสเดิม แล้วทุกเครื่องที่ล็อกอินค้างอยู่จะถูกออกจากระบบ (ยกเว้นเครื่องนี้ที่ได้ token ใหม่)
+  .post('/api/auth/change-password', async ({ request }) => {
+    const me = await requireAuth(request);
+    const ek = `pw:${me.id}`;
+    if (!checkAuthLimit(ek)) return status(429, { error: 'พยายามบ่อยเกินไป กรุณาลองใหม่ภายหลัง' });
+    const p = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) })
+      .safeParse(await request.json().catch(() => ({})));
+    if (!p.success) return status(400, { error: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร' });
+    const row = await repo.getUserById(me.id);
+    if (!row || !(await Bun.password.verify(p.data.currentPassword, row.password_hash))) {
+      noteFailure(ek);
+      return status(400, { error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
+    }
+    if (p.data.currentPassword === p.data.newPassword) return status(400, { error: 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม' });
+    await repo.setPassword(me.id, await Bun.password.hash(p.data.newPassword));
+    failures.delete(ek);
+    const fresh = await repo.getUserById(me.id);
+    return { token: await signToken({ ...me, tokenVersion: Number(fresh?.token_version ?? 0) }) };
+  })
+
+  // ออกจากระบบทุกเครื่อง (รวมเครื่องนี้)
+  .post('/api/auth/logout-all', async ({ request }) => {
+    const me = await requireAuth(request);
+    await repo.bumpTokenVersion(me.id);
+    return { ok: true };
+  })
+
+  // admin ตั้งรหัสผ่านใหม่ให้ผู้ใช้ (กรณีลืมรหัสผ่าน) แล้วเตะ session เดิมของผู้ใช้นั้นทั้งหมด
+  .post('/api/users/:id/password', async ({ request, params }) => {
+    const me = await requireAuth(request);
+    if (me.role !== 'admin') return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
+    const p = z.object({ newPassword: z.string().min(8).max(200) }).safeParse(await request.json().catch(() => ({})));
+    if (!p.success) return status(400, { error: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร' });
+    if (!(await repo.getUserById(params.id))) return status(404, { error: 'ไม่พบผู้ใช้' });
+    await repo.setPassword(params.id, await Bun.password.hash(p.data.newPassword));
+    return { ok: true };
   })
 
   // ---------- Bootstrap ----------
@@ -224,10 +266,13 @@ const app = new Elysia()
         b.enrolledCourseIds = [...kept];
       }
     }
+    const roleChanged = me.role === 'admin' && !!b.role && b.role !== existing.role;
     await repo.updateUserProfile(
       { ...repo.toUser(existing), ...b, id: existing.id, email: existing.email, createdAt: existing.created_at },
       me.role === 'admin' && !!b.role,
     );
+    // เปลี่ยน role แล้ว token เดิมของผู้ใช้นั้นต้องใช้ไม่ได้ (บังคับล็อกอินใหม่ด้วยสิทธิ์ใหม่)
+    if (roleChanged && existing.id !== me.id) await repo.bumpTokenVersion(existing.id);
     return { ok: true };
   })
 

@@ -17,6 +17,12 @@ export async function migrate() {
   for (const stmt of schema.split(/;\s*\n/).map((s) => s.trim()).filter(Boolean)) {
     await sql.unsafe(stmt);
   }
+  // ฐานข้อมูลเดิมที่สร้างก่อนมีคอลัมน์ token_version: เพิ่มให้อัตโนมัติ
+  const col = await sql`SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'token_version'`;
+  if (Number((col as any[])[0]?.n) === 0) {
+    await sql.unsafe("ALTER TABLE users ADD COLUMN token_version INT NOT NULL DEFAULT 0");
+  }
 }
 
 export const parseJson = <T>(v: unknown): T =>

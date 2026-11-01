@@ -24,9 +24,17 @@ export async function api<T = unknown>(method: string, url: string, body?: unkno
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error || 'เกิดข้อผิดพลาด');
+  if (!res.ok) {
+    // token ถูกเพิกถอน (เปลี่ยนรหัสผ่าน/role/ออกจากทุกเครื่อง) ระหว่างใช้งาน -> แจ้งให้แอปออกจากระบบ
+    if (res.status === 401 && token && !url.startsWith('/api/auth/')) {
+      try { window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT)); } catch { /* non-browser */ }
+    }
+    throw new ApiError(res.status, (data as { error?: string }).error || 'เกิดข้อผิดพลาด');
+  }
   return data as T;
 }
+
+export const AUTH_EXPIRED_EVENT = 'bb:auth-expired';
 
 export interface Bootstrap {
   currentUserId: string;
@@ -85,4 +93,9 @@ export const login = async (email: string, password: string) =>
   setToken((await api<{ token: string }>('POST', '/api/auth/login', { email, password })).token);
 export const register = async (name: string, email: string, password: string) =>
   setToken((await api<{ token: string }>('POST', '/api/auth/register', { name, email, password })).token);
+export const changePassword = async (currentPassword: string, newPassword: string) =>
+  setToken((await api<{ token: string }>('POST', '/api/auth/change-password', { currentPassword, newPassword })).token);
+export const logoutAllDevices = () => api('POST', '/api/auth/logout-all', {});
+export const adminResetPassword = (userId: string, newPassword: string) =>
+  api('POST', `/api/users/${encodeURIComponent(userId)}/password`, { newPassword });
 export const fetchBootstrap = () => api<Bootstrap>('GET', '/api/bootstrap');

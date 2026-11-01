@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
   department VARCHAR(255),
   phone VARCHAR(64),
   enrolled_course_ids JSON NOT NULL,
-  created_at VARCHAR(64) NOT NULL
+  created_at VARCHAR(64) NOT NULL,
+  token_version INT NOT NULL DEFAULT 0
 ) CHARACTER SET utf8mb4;
 
 CREATE TABLE IF NOT EXISTS courses (
