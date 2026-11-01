@@ -175,7 +175,9 @@ const app = new Elysia()
     if (!isSelf && me.role !== 'admin') return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
     const existing = await repo.getUserById(params.id);
     if (!existing) return status(404, { error: 'ไม่พบผู้ใช้' });
-    const b = await request.json().catch(() => ({}));
+    const b = await request.json().catch(() => null);
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
+    if (b.role !== undefined && !['admin', 'teacher', 'student'].includes(b.role)) delete b.role;
     // คนทั่วไปห้ามเปลี่ยน role ตัวเอง (กันอัปเกรดสิทธิ์)
     // enroll เพิ่มได้เฉพาะคอร์สที่ publish แล้วหรือคอร์สที่ตัวเองดูแลเท่านั้น
     if (me.role !== 'admin') {
@@ -233,6 +235,7 @@ const app = new Elysia()
     const me = await requireAuth(request);
     const body = await request.json().catch(() => ({}));
     const code = String(body?.code || '').trim().toLowerCase();
+    if (!code) return { course: null };
     const all = await repo.listCourses({ id: '', role: 'admin' });
     const hit = all.find(c => c.classroomCode?.toLowerCase() === code && c.isClassroomOpen !== false);
     // รหัสห้องต้องไม่เปิดเผยคอร์สที่ยังไม่ publish ให้คนนอก
@@ -253,7 +256,7 @@ const app = new Elysia()
     if (!course) return status(404, { error: 'ไม่พบหลักสูตร' });
     const fallback = lessonUnits(course, String(b?.lessonId || ''))[0];
     const unit = allUnits(course).find(u => u.ownerLessonId === b?.lessonId && (!b?.videoUrl || u.videoUrl === b.videoUrl))
-      || (fallback ? { ...fallback, ownerLessonId: String(b.lessonId) } : undefined);
+      || (fallback ? { ...fallback, ownerLessonId: String(b?.lessonId) } : undefined);
     if (!unit) return status(400, { error: 'ไม่พบบทเรียน' });
     const key = watchKeyFor(unit.ownerLessonId ?? String(b.lessonId), unit.videoUrl);
     const records = await repo.listWatch(me.id, params.courseId);
@@ -274,7 +277,7 @@ const app = new Elysia()
     if (!course) return status(404, { error: 'ไม่พบหลักสูตร' });
     const lessonId = String(b?.lessonId || '');
     const subLessonId = b?.subLessonId ? String(b.subLessonId) : null;
-    if (!staff(me)) {
+    if (!(await canManageCourse(me, params.courseId))) {
       const lesson = course.lessons.find(l => l.id === lessonId);
       const target = subLessonId
         ? lesson?.subLessons?.find(s => s.id === subLessonId)
@@ -403,7 +406,7 @@ const app = new Elysia()
     const me = await requireAuth(request);
     const a = await request.json().catch(() => null);
     if (a?.courseId !== params.courseId) return status(400, { error: 'id ไม่ตรงกัน' });
-    if (!staff(me)) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
+    if (!(await canManageCourse(me, params.courseId))) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
     await repo.saveAnalytics(a);
     return { ok: true };
   })
