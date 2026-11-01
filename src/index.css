@@ -75,8 +75,10 @@
 }
 
 :root {
-  --crystal-glass: rgba(255, 255, 255, 0.62);
-  --crystal-glass-strong: rgba(255, 255, 255, 0.82);
+  /* โปร่งขึ้น แต่เบลอแรงขึ้นเพื่อให้พื้นหลังไม่รบกวนตัวอักษร */
+  --crystal-glass: rgba(255, 255, 255, 0.42);
+  --crystal-glass-strong: rgba(255, 255, 255, 0.66);
+  --crystal-blur: blur(26px) saturate(180%) brightness(1.06);
   --crystal-border: rgba(255, 255, 255, 0.75);
   --crystal-edge: rgba(29, 111, 241, 0.14);
   --crystal-shadow: 0 8px 32px -12px rgba(20, 70, 160, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -103,16 +105,16 @@
   /* การ์ด/แผงสีขาว -> กระจกฝ้า */
   .bg-white:where([class*="rounded"]), .bg-white\/95, .bg-white\/90, .bg-white\/80 {
     background-color: var(--crystal-glass);
-    -webkit-backdrop-filter: blur(16px) saturate(160%);
-    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: var(--crystal-blur);
+    backdrop-filter: var(--crystal-blur);
     border-color: var(--crystal-border);
     box-shadow: var(--crystal-shadow);
   }
   /* แถบหัว/แถบล่างที่ไม่มีมุมโค้ง */
   header.bg-white, nav.bg-white, footer.bg-white, .bg-white\/95 {
     background-color: var(--crystal-glass-strong);
-    -webkit-backdrop-filter: blur(18px) saturate(170%);
-    backdrop-filter: blur(18px) saturate(170%);
+    -webkit-backdrop-filter: var(--crystal-blur);
+    backdrop-filter: var(--crystal-blur);
   }
   /* ช่องกรอกข้อมูลอ่านง่าย ไม่โปร่งเกิน */
   input.bg-white, textarea.bg-white, select.bg-white,
@@ -120,9 +122,22 @@
     background-color: var(--crystal-glass-strong);
     box-shadow: none;
   }
-  .bg-slate-50 { background-color: rgba(240, 247, 255, 0.55); }
-  .bg-slate-50\/50, .bg-slate-50\/80 { background-color: rgba(235, 245, 255, 0.45); }
-  .bg-slate-100 { background-color: rgba(220, 235, 255, 0.6); }
+  .bg-slate-50 { background-color: rgba(240, 247, 255, 0.38); }
+  .bg-slate-50\/50, .bg-slate-50\/80 { background-color: rgba(235, 245, 255, 0.3); }
+  .bg-slate-100 { background-color: rgba(220, 235, 255, 0.45); }
+
+  /* ความคมชัดตัวอักษรบนกระจก: เข้มขึ้นจากสีเทาเดิมให้ผ่านเกณฑ์อ่านง่าย (WCAG AA) */
+  /* ใช้เฉพาะข้อความบนพื้นสว่าง: ข้ามส่วนที่อยู่ในพื้นเข้ม (hero, แผงซ้ายหน้า login, วิดีโอ) */
+  .text-slate-400:not(:is(.crystal-dark, [class*="bg-slate-8"], [class*="bg-slate-9"], [class*="bg-indigo-9"], [class*="from-slate-9"], [class*="from-indigo-9"], [class*="bg-black"], [class*="bg-gray-9"], [class*="bg-[#"]) *) { color: #4a5f80; }
+  .text-slate-500:not(:is(.crystal-dark, [class*="bg-slate-8"], [class*="bg-slate-9"], [class*="bg-indigo-9"], [class*="from-slate-9"], [class*="from-indigo-9"], [class*="bg-black"], [class*="bg-gray-9"], [class*="bg-[#"]) *) { color: #3b4f70; }
+  .text-slate-600 { color: #2c3f5e; }
+  .text-slate-700 { color: #1e3050; }
+  .text-slate-800, .text-slate-900 { color: #0d1f3c; }
+  .placeholder\:text-slate-400::placeholder, ::placeholder { color: #5a6f90; }
+  /* ข้อความบนกระจกมีเงาขาวบาง ๆ ช่วยแยกตัวอักษรออกจากพื้นหลัง */
+  .bg-white:where([class*="rounded"]) :where(p, span, h1, h2, h3, h4, label, td, th, li) {
+    text-shadow: 0 0 1px rgba(255, 255, 255, 0.6);
+  }
   .border-slate-100, .border-slate-200, .border-slate-200\/70 { border-color: var(--crystal-edge); }
 
   /* ปุ่มหลักสีน้ำเงิน -> ประกายคริสตัล */
