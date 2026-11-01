@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Course, Lesson, UserNote } from '../types';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
+import { safeUrl } from '../utils/safeUrl';
 import {
   Play,
   Pause,
@@ -495,7 +496,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <iframe
             ref={iframeRef}
             key={videoSource.src}
-            src={autoplayNext && videoSource.src.includes('youtube') ? `${videoSource.src}&autoplay=1` : videoSource.src}
+            src={safeUrl(autoplayNext && videoSource.src.includes('youtube') ? `${videoSource.src}&autoplay=1` : videoSource.src)}
             title={lesson.title}
             className="absolute inset-0 w-full h-full"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -527,7 +528,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               เล่นวิดีโอจาก URL นี้ไม่ได้ — ไฟล์อาจถูกลบ, ไม่เปิดสิทธิ์เข้าถึง หรือไม่ใช่ไฟล์วิดีโอโดยตรง
             </div>
             {lesson.videoUrl && (
-              <a href={lesson.videoUrl} target="_blank" rel="noopener noreferrer" className="mt-3 text-xs text-indigo-300 underline hover:text-indigo-200">
+              <a href={safeUrl(lesson.videoUrl)} target="_blank" rel="noopener noreferrer" className="mt-3 text-xs text-indigo-300 underline hover:text-indigo-200">
                 เปิดวิดีโอต้นฉบับ ↗
               </a>
             )}
@@ -752,7 +753,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   {lesson.resources.map(res => (
                     <a
                       key={res.id}
-                      href={res.url}
+                      href={safeUrl(res.url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       download

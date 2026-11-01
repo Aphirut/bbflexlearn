@@ -1,4 +1,5 @@
 import React from 'react';
+import DOMPurify from 'dompurify';
 import { EmailNotification } from '../types';
 import { useApp } from '../context/AppContext';
 import { Mail, Check, X, ShieldCheck } from 'lucide-react';
@@ -68,7 +69,7 @@ export const EmailPreviewModal: React.FC<EmailPreviewModalProps> = ({
         <div className="p-6 overflow-y-auto flex-1 bg-white">
           <div
             className="prose prose-sm max-w-none text-slate-800"
-            dangerouslySetInnerHTML={{ __html: notification.htmlBody }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(notification.htmlBody || '', { FORBID_TAGS: ['style', 'form', 'iframe'], FORBID_ATTR: ['style'] }) }}
           />
         </div>
 

@@ -6,6 +6,7 @@ import { migrate } from './db';
 import * as repo from './repo';
 import { advanceWatch, allUnits, applyActualDuration, lessonUnits, verifiedLessonIds, watchKeyFor, type WatchRecord } from './watchGuard';
 import { gradeQuiz } from './grading';
+import * as V from './validate';
 
 const isProd = Bun.env.NODE_ENV === 'production';
 const JWT_SECRET = Bun.env.JWT_SECRET || (isProd ? '' : 'dev-only-secret-change-me');
@@ -27,19 +28,25 @@ class HttpError extends Error {
   constructor(public code: number, public body: unknown) { super(typeof body === 'object' && body && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${code}`); }
 }
 
-// Rate limit: failed credential attempts per IP only
+// Rate limit: นับครั้งที่ล็อกอินผิดทั้งต่อ IP และต่ออีเมล (กันเดารหัสแบบเปลี่ยน IP วน)
 const failures = new Map<string, { n: number; reset: number }>();
-const MAX_FAILURES = 20;
-const checkAuthLimit = (ip: string) => {
-  const f = failures.get(ip);
-  return !(f && f.reset > Date.now() && f.n >= MAX_FAILURES);
-};
-const noteFailure = (ip: string) => {
+const MAX_FAILURES_IP = 20;
+const MAX_FAILURES_EMAIL = 10;
+const limitOf = (key: string) => (key.startsWith('email:') ? MAX_FAILURES_EMAIL : MAX_FAILURES_IP);
+const checkAuthLimit = (...keys: string[]) => keys.every(key => {
+  const f = failures.get(key);
+  return !(f && f.reset > Date.now() && f.n >= limitOf(key));
+});
+const noteFailure = (...keys: string[]) => {
   const now = Date.now();
-  const f = failures.get(ip);
-  if (!f || f.reset < now) failures.set(ip, { n: 1, reset: now + 15 * 60_000 });
-  else f.n++;
+  for (const key of keys) {
+    const f = failures.get(key);
+    if (!f || f.reset < now) failures.set(key, { n: 1, reset: now + 15 * 60_000 });
+    else f.n++;
+  }
+  if (failures.size > 50_000) for (const [k, f] of failures) if (f.reset < now) failures.delete(k);
 };
+const emailKey = (email: unknown) => `email:${String(email || '').trim().toLowerCase()}`;
 
 async function requireAuth(request: Request): Promise<AuthUser> {
   const header = request.headers.get('authorization') || '';
@@ -57,8 +64,16 @@ async function requireAuth(request: Request): Promise<AuthUser> {
 }
 
 const staff = (u: AuthUser) => u.role === 'admin' || u.role === 'teacher';
-const clientIp = (request: Request) =>
-  request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'x';
+// เชื่อ X-Forwarded-For เฉพาะเมื่อมี reverse proxy ของเราเองอยู่ข้างหน้า (ตั้ง TRUST_PROXY=1)
+// ไม่งั้น client ปลอม header เพื่อหลบ rate limit ได้
+const TRUST_PROXY = Bun.env.TRUST_PROXY === '1' || Bun.env.TRUST_PROXY === 'true';
+const clientIp = (request: Request) => {
+  if (TRUST_PROXY) {
+    const xff = request.headers.get('x-forwarded-for')?.split(',').map(s => s.trim()).filter(Boolean);
+    if (xff?.length) return `ip:${xff[xff.length - 1]}`; // ค่าขวาสุด = ค่าที่ proxy ของเราเติม
+  }
+  return `ip:${app.server?.requestIP(request)?.address || 'unknown'}`;
+};
 
 const registerSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -89,7 +104,19 @@ async function sniffImageKind(file: File): Promise<'png' | 'jpg' | 'gif' | 'webp
   return kind === 'pdf' || kind === null ? null : kind;
 }
 
+const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const app = new Elysia()
+  .onRequest(({ request }) => {
+    const len = Number(request.headers.get('content-length') || 0);
+    const isUpload = new URL(request.url).pathname.startsWith('/api/uploads/');
+    if (!isUpload && len > MAX_JSON_BYTES)
+      return new Response(JSON.stringify({ error: 'ข้อมูลมีขนาดใหญ่เกินไป' }), { status: 413, headers: { 'content-type': 'application/json' } });
+  })
+  .onAfterHandle(({ set }) => {
+    set.headers['x-content-type-options'] = 'nosniff';
+    set.headers['x-frame-options'] = 'SAMEORIGIN';
+    set.headers['referrer-policy'] = 'strict-origin-when-cross-origin';
+  })
   .onError(({ error }) => {
     if (error instanceof HttpError) {
       const code = [400, 401, 403, 404, 409, 410, 429].includes(error.code) ? error.code : 500;
@@ -106,6 +133,9 @@ const app = new Elysia()
     if (!checkAuthLimit(ip)) return status(429, { error: 'พยายามบ่อยเกินไป กรุณาลองใหม่ภายหลัง' });
     const p = registerSchema.safeParse(await request.json().catch(() => ({})));
     if (!p.success) return status(400, { error: 'ข้อมูลไม่ถูกต้อง (รหัสผ่านอย่างน้อย 8 ตัวอักษร)' });
+    // นับการสมัครทุกครั้งต่อ IP กันสร้างบัญชีจำนวนมาก
+    noteFailure(`reg:${ip}`);
+    if (!checkAuthLimit(`reg:${ip}`)) return status(429, { error: 'พยายามบ่อยเกินไป กรุณาลองใหม่ภายหลัง' });
     if (await repo.getUserByEmail(p.data.email)) return status(409, { error: 'อีเมลนี้ถูกใช้งานแล้ว' });
     const id = `user-${crypto.randomUUID()}`;
     await repo.insertUser({
@@ -118,15 +148,17 @@ const app = new Elysia()
 
   .post('/api/auth/login', async ({ request }) => {
     const ip = clientIp(request);
-    if (!checkAuthLimit(ip)) return status(429, { error: 'พยายามบ่อยเกินไป กรุณาลองใหม่ภายหลัง' });
     const body = await request.json().catch(() => ({}));
+    const ek = emailKey(body?.email);
+    if (!checkAuthLimit(ip, ek)) return status(429, { error: 'พยายามบ่อยเกินไป กรุณาลองใหม่ภายหลัง' });
     const p = z.object({ email: z.string().email(), password: z.string().min(1) }).safeParse(body);
     const row = p.success ? await repo.getUserByEmail(p.data.email) : undefined;
     const ok = row && p.success && await Bun.password.verify(p.data.password, row.password_hash);
     if (!row || !ok) {
-      noteFailure(ip);
+      noteFailure(ip, ek);
       return status(401, { error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
     }
+    failures.delete(ek);
     return { token: await signToken({ id: row.id, email: row.email, role: row.role }) };
   })
 
@@ -157,7 +189,7 @@ const app = new Elysia()
       id: z.string().regex(/^[\w-]{1,64}$/).optional(),
       avatar: z.string().optional(), department: z.string().optional(), phone: z.string().optional(),
     }).safeParse(await request.json().catch(() => ({})));
-    if (!p.success) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
+    if (!p.success || V.hasDangerousUrl(p.data)) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
     if (await repo.getUserByEmail(p.data.email)) return status(409, { error: 'อีเมลนี้ถูกใช้งานแล้ว' });
     const id = p.data.id || `user-${crypto.randomUUID()}`;
     await repo.insertUser({
@@ -175,9 +207,8 @@ const app = new Elysia()
     if (!isSelf && me.role !== 'admin') return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
     const existing = await repo.getUserById(params.id);
     if (!existing) return status(404, { error: 'ไม่พบผู้ใช้' });
-    const b = await request.json().catch(() => null);
-    if (!b || typeof b !== 'object' || Array.isArray(b)) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
-    if (b.role !== undefined && !['admin', 'teacher', 'student'].includes(b.role)) delete b.role;
+    const b: Record<string, any> | null = V.check(V.userUpdateSchema, await request.json().catch(() => null));
+    if (!b) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
     // คนทั่วไปห้ามเปลี่ยน role ตัวเอง (กันอัปเกรดสิทธิ์)
     // enroll เพิ่มได้เฉพาะคอร์สที่ publish แล้วหรือคอร์สที่ตัวเองดูแลเท่านั้น
     if (me.role !== 'admin') {
@@ -211,8 +242,9 @@ const app = new Elysia()
   .put('/api/courses/:id', async ({ request, params }) => {
     const me = await requireAuth(request);
     if (!staff(me)) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
-    const course = await request.json().catch(() => null);
-    if (course?.id !== params.id) return status(400, { error: 'id ไม่ตรงกัน' });
+    const course = V.check(V.courseSchema, await request.json().catch(() => null)) as any;
+    if (!course) return status(400, { error: 'ข้อมูลหลักสูตรไม่ถูกต้อง' });
+    if (course.id !== params.id) return status(400, { error: 'id ไม่ตรงกัน' });
     const existing = await repo.getCourseRow(course.id);
     if (existing && me.role !== 'admin' && existing.created_by_id !== me.id)
       return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
@@ -299,7 +331,8 @@ const app = new Elysia()
   // ---------- Progress / certificates / notes / notifications ----------
   .put('/api/progress/:courseId/:userId', async ({ request, params }) => {
     const me = await requireAuth(request);
-    const p = await request.json().catch(() => null);
+    const p = V.check(V.progressSchema, await request.json().catch(() => null)) as any;
+    if (!p) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
     if (p?.courseId !== params.courseId || p?.userId !== params.userId)
       return status(400, { error: 'ข้อมูลไม่ตรงกัน' });
     const isSelf = params.userId === me.id;
@@ -344,7 +377,8 @@ const app = new Elysia()
 
   .put('/api/certificates/:id', async ({ request, params }) => {
     const me = await requireAuth(request);
-    const c = await request.json().catch(() => null);
+    const c = V.check(V.certificateSchema, await request.json().catch(() => null)) as any;
+    if (!c) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
     if (c?.id !== params.id) return status(400, { error: 'id ไม่ตรงกัน' });
     // ยึด course/user จากใบที่เก็บไว้จริง ไม่ใช่ค่าที่ client ส่งมา (กันย้ายใบข้ามคอร์ส/ข้ามคน)
     if (await repo.isCertificateRevoked(params.id)) return status(410, { error: 'ใบประกาศนียบัตรนี้ถูกเพิกถอนแล้ว' });
@@ -374,8 +408,9 @@ const app = new Elysia()
 
   .put('/api/notifications/:id', async ({ request, params }) => {
     const me = await requireAuth(request);
-    const n = await request.json().catch(() => null);
-    if (n?.id !== params.id) return status(400, { error: 'id ไม่ตรงกัน' });
+    const n = V.check(V.notificationSchema, await request.json().catch(() => null)) as any;
+    if (!n) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
+    if (n.id !== params.id) return status(400, { error: 'id ไม่ตรงกัน' });
     const owner = await repo.getNotificationEmail(n.id);
     if (owner && owner !== me.email.toLowerCase() && me.role !== 'admin')
       return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
@@ -402,7 +437,8 @@ const app = new Elysia()
 
   .put('/api/notes/:id', async ({ request, params }) => {
     const me = await requireAuth(request);
-    const n = await request.json().catch(() => null);
+    const n = V.check(V.noteSchema, await request.json().catch(() => null)) as any;
+    if (!n) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
     if (n?.id !== params.id || n.userId !== me.id) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
     const owner = await repo.getNoteOwner(n.id);
     if (owner && owner !== me.id) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
@@ -421,7 +457,8 @@ const app = new Elysia()
 
   .put('/api/analytics/:courseId', async ({ request, params }) => {
     const me = await requireAuth(request);
-    const a = await request.json().catch(() => null);
+    const a = V.check(V.analyticsSchema, await request.json().catch(() => null)) as any;
+    if (!a) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
     if (a?.courseId !== params.courseId) return status(400, { error: 'id ไม่ตรงกัน' });
     if (!(await canManageCourse(me, params.courseId))) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
     await repo.saveAnalytics(a);
@@ -431,7 +468,9 @@ const app = new Elysia()
   .put('/api/settings', async ({ request }) => {
     const me = await requireAuth(request);
     if (me.role !== 'admin') return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
-    await repo.saveSettings(await request.json().catch(() => ({})));
+    const settings = V.check(V.settingsSchema, await request.json().catch(() => null));
+    if (!settings) return status(400, { error: 'ข้อมูลการตั้งค่าไม่ถูกต้อง' });
+    await repo.saveSettings(settings as any);
     return { ok: true };
   })
 
