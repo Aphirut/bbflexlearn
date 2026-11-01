@@ -379,6 +379,23 @@ const app = new Elysia()
     const owner = await repo.getNotificationEmail(n.id);
     if (owner && owner !== me.email.toLowerCase() && me.role !== 'admin')
       return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
+    // แจ้งเตือนใหม่: ส่งถึงตัวเองได้เสมอ, ครูส่งได้เฉพาะนักเรียนในคอร์สที่ตัวเองดูแล, admin ส่งได้ทุกคน
+    if (!owner && me.role !== 'admin') {
+      const to = String(n.toEmail || '').trim().toLowerCase();
+      if (!to) return status(400, { error: 'ข้อมูลไม่ถูกต้อง' });
+      if (to !== me.email.toLowerCase()) {
+        if (me.role !== 'teacher') return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
+        const target = await repo.getUserByEmail(to);
+        if (!target) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
+        const enrolled: string[] = repo.toUser(target).enrolledCourseIds || [];
+        const candidates = n.relatedCourseId ? [String(n.relatedCourseId)] : enrolled;
+        let allowed = false;
+        for (const cid of candidates) {
+          if (enrolled.includes(cid) && await canManageCourse(me, cid)) { allowed = true; break; }
+        }
+        if (!allowed) return status(403, { error: 'ส่งได้เฉพาะนักเรียนในคอร์สของคุณ' });
+      }
+    }
     await repo.saveNotification(owner ? { ...n, toEmail: owner } : n);
     return { ok: true };
   })
