@@ -6,6 +6,7 @@ import { migrate } from './db';
 import * as repo from './repo';
 import { advanceWatch, allUnits, applyActualDuration, lessonUnits, verifiedLessonIds, watchKeyFor, type WatchRecord } from './watchGuard';
 import { gradeQuiz } from './grading';
+import { isAiGradingConfigured, suggestSubjectiveGrade } from './aiGrading';
 
 const isProd = Bun.env.NODE_ENV === 'production';
 const JWT_SECRET = Bun.env.JWT_SECRET || (isProd ? '' : 'dev-only-secret-change-me');
@@ -291,6 +292,40 @@ const app = new Elysia()
     const changed = JSON.stringify(updated.lessons) !== JSON.stringify(course.lessons);
     if (changed) await repo.saveCourse(updated);
     return { course: updated, changed };
+  })
+
+  // ---------- AI ช่วยตรวจอัตนัย (ครูเป็นผู้ยืนยันคะแนนเสมอ) ----------
+  .post('/api/ai/grade-subjective', async ({ request }) => {
+    const me = await requireAuth(request);
+    if (!staff(me)) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
+    const body = await request.json().catch(() => null);
+    const p = z.object({
+      courseId: z.string().min(1).max(64),
+      quizType: z.enum(['pre_test', 'post_test']),
+      questionId: z.string().min(1).max(64),
+      studentAnswer: z.string().max(8000),
+    }).safeParse(body);
+    if (!p.success) return status(400, { error: 'ข้อมูลไม่ครบถ้วน' });
+    if (!(await canManageCourse(me, p.data.courseId))) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
+    if (!isAiGradingConfigured()) return status(503, { error: 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY' });
+
+    const course = await repo.getCourse(p.data.courseId);
+    if (!course) return status(404, { error: 'ไม่พบข้อมูล' });
+    // ใช้โจทย์/เกณฑ์จากฐานข้อมูลเท่านั้น ไม่เชื่อ rubric ที่ client ส่งมา
+    const quiz = p.data.quizType === 'pre_test' ? course.preTest : course.postTest;
+    const question = quiz?.questions.find(q => q.id === p.data.questionId);
+    if (!question || (question.type !== 'subjective_short' && question.type !== 'subjective_essay')) {
+      return status(400, { error: 'ไม่ใช่ข้อสอบอัตนัย' });
+    }
+    const maxScore = question.points && question.points > 0 ? question.points : 1;
+    try {
+      const suggestion = await suggestSubjectiveGrade(question, maxScore, p.data.studentAnswer);
+      if (!suggestion) return status(502, { error: 'AI ตอบกลับในรูปแบบที่ไม่ถูกต้อง ลองใหม่อีกครั้ง' });
+      return suggestion;
+    } catch (err) {
+      console.error('AI grading failed:', err);
+      return status(502, { error: 'เรียกบริการ AI ไม่สำเร็จ ลองใหม่อีกครั้ง' });
+    }
   })
 
   // ---------- Progress / certificates / notes / notifications ----------

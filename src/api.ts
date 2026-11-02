@@ -86,3 +86,17 @@ export const login = async (email: string, password: string) =>
 export const register = async (name: string, email: string, password: string) =>
   setToken((await api<{ token: string }>('POST', '/api/auth/register', { name, email, password })).token);
 export const fetchBootstrap = () => api<Bootstrap>('GET', '/api/bootstrap');
+
+export interface AiGradeSuggestion {
+  score: number;
+  maxScore: number;
+  comment: string;
+}
+
+/** ขอข้อเสนอคะแนนอัตนัยจาก AI — ครูต้องยืนยันก่อนบันทึกเสมอ */
+export const suggestSubjectiveGrade = (body: {
+  courseId: string;
+  quizType: 'pre_test' | 'post_test';
+  questionId: string;
+  studentAnswer: string;
+}) => api<AiGradeSuggestion>('POST', '/api/ai/grade-subjective', body);

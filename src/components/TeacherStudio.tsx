@@ -50,6 +50,7 @@ import {
 import { LessonCoverField, normalizeImageUrl } from './LessonCoverField';
 import { SubLessonsEditor } from './SubLessonsEditor';
 import { QuizBuilderField } from './QuizBuilderField';
+import { suggestSubjectiveGrade } from '../api';
 import { cleanQuiz } from '../utils/lessonQuizzes';
 import { LessonMaterialsField } from './LessonMaterialsField';
 import type { Quiz, SubLesson } from '../types';
@@ -244,6 +245,28 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
   } | null>(null);
 
   const [gradingDraft, setGradingDraft] = useState<Record<string, { scoreAwarded: number; teacherComment: string }>>({});
+  const [aiGradingQid, setAiGradingQid] = useState<string | null>(null);
+  const [aiGradeError, setAiGradeError] = useState<{ qId: string; message: string } | null>(null);
+
+  /** ให้ AI เสนอคะแนน+ข้อเสนอแนะลงในฟอร์ม — ครูแก้ไขได้และต้องกดบันทึกเอง */
+  const handleAiSuggestGrade = async (qId: string, studentAnswer: string) => {
+    if (!selectedSubmissionToGrade) return;
+    setAiGradingQid(qId);
+    setAiGradeError(null);
+    try {
+      const r = await suggestSubjectiveGrade({
+        courseId: selectedSubmissionToGrade.course.id,
+        quizType: selectedSubmissionToGrade.quizType,
+        questionId: qId,
+        studentAnswer,
+      });
+      setGradingDraft(prev => ({ ...prev, [qId]: { scoreAwarded: r.score, teacherComment: r.comment } }));
+    } catch (err) {
+      setAiGradeError({ qId, message: err instanceof Error ? err.message : 'เรียก AI ไม่สำเร็จ' });
+    } finally {
+      setAiGradingQid(null);
+    }
+  };
 
   // Certificate Studio State
   const [certCourseId, setCertCourseId] = useState<string>(() => courses[0]?.id || '');
@@ -3110,7 +3133,23 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
                     )}
 
                     {/* Grading Form for this question */}
-                    <div className="pt-2 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+                    <div className="pt-2 border-t border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-500">AI เป็นเพียงข้อเสนอ ครูตรวจทานก่อนบันทึกเสมอ</span>
+                        <button
+                          type="button"
+                          onClick={() => handleAiSuggestGrade(qId, subItem.studentAnswer || '')}
+                          disabled={aiGradingQid !== null || !subItem.studentAnswer}
+                          className="shrink-0 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-[11px] font-bold disabled:opacity-40"
+                        >
+                          {aiGradingQid === qId ? 'กำลังให้ AI ตรวจ...' : '✨ ให้ AI ช่วยตรวจ'}
+                        </button>
+                      </div>
+                      {aiGradeError?.qId === qId && (
+                        <p className="text-[11px] text-rose-600">{aiGradeError.message}</p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
                       <div className="flex items-center gap-2">
                         <label className="font-bold text-slate-700">คะแนนที่ให้:</label>
                         <input
