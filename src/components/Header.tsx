@@ -53,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onOpenN
           className="flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0 group"
         >
           <AppLogo size="md" />
-          <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors truncate min-w-0 max-w-[38vw] sm:max-w-[200px] md:max-w-[220px] xl:max-w-none lg:hidden xl:inline">
+          <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors truncate min-w-0 max-w-[30vw] sm:max-w-[200px] md:max-w-[220px] xl:max-w-none lg:hidden xl:inline">
             {appSettings.appName || 'BB FlexLearn'}
           </span>
         </div>
@@ -136,8 +136,10 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onOpenN
             </button>
           )}
 
-          {/* PWA Install Button */}
-          <PWAInstallButton />
+          {/* PWA Install Button (desktop only — on mobile it lives in the drawer so the header row fits small screens) */}
+          <div className="hidden lg:block">
+            <PWAInstallButton />
+          </div>
 
           {/* Email Notification Bell */}
           <button
@@ -358,37 +360,44 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onOpenN
             </div>
           )}
 
+          {/* PWA install (mobile placement — full width inside the drawer) */}
+          <div className="pt-2 border-t border-slate-100">
+            <PWAInstallButton className="w-full justify-center" />
+          </div>
+
           {/* User Profile Info Footer in Drawer */}
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
-              <img src={currentUser.avatar} alt={currentUser.name} className="w-8 h-8 rounded-full object-cover border" />
-              <div>
-                <span className="text-xs font-bold text-slate-900 block">{currentUser.name}</span>
-                <span className="text-[10px] text-slate-500 block">
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <img src={currentUser.avatar} alt={currentUser.name} className="w-8 h-8 rounded-full object-cover border shrink-0" />
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-slate-900 block truncate">{currentUser.name}</span>
+                <span className="text-[10px] text-slate-500 block truncate">
                   {currentUser.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : currentUser.role === 'teacher' ? 'อาจารย์ผู้สอน' : 'ผู้เรียน (Student)'}
                 </span>
               </div>
             </div>
-            <button
-              onClick={() => {
-                setShowMobileMenu(false);
-                setShowProfileEdit(true);
-              }}
-              className="text-[11px] text-indigo-600 hover:underline flex items-center gap-1 font-medium mr-3"
-            >
-              <Pencil className="w-3 h-3" />
-              <span>แก้ไขข้อมูลส่วนตัว</span>
-            </button>
-            <button
-              onClick={() => {
-                logout();
-                setShowMobileMenu(false);
-              }}
-              className="text-[11px] text-rose-600 hover:underline flex items-center gap-1 font-medium"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>ออกจากระบบ</span>
-            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={() => {
+                  setShowMobileMenu(false);
+                  setShowProfileEdit(true);
+                }}
+                className="text-[11px] text-indigo-600 hover:underline flex items-center gap-1 font-medium whitespace-nowrap"
+              >
+                <Pencil className="w-3 h-3" />
+                <span>แก้ไขข้อมูลส่วนตัว</span>
+              </button>
+              <button
+                onClick={() => {
+                  logout();
+                  setShowMobileMenu(false);
+                }}
+                className="text-[11px] text-rose-600 hover:underline flex items-center gap-1 font-medium whitespace-nowrap"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>ออกจากระบบ</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Course, Lesson, UserNote } from '../types';
 import { useApp } from '../context/AppContext';
 import { api } from '../api';
+import { resolveVideoSource, supportsEmbedEndedEvent, embedAutoplaySrc } from '../utils/embedPlayback';
 import {
   Play,
   Pause,
@@ -19,39 +20,6 @@ import {
   Bookmark,
   Sparkles
 } from 'lucide-react';
-
-/** แปลง URL ที่ผู้ใช้วาง (YouTube/Vimeo/Drive/Dailymotion/ลิงก์ไฟล์ตรง) ให้เล่นได้ */
-export function resolveVideoSource(rawUrl: string): { kind: 'embed' | 'file'; src: string } {
-  const trimmed = (rawUrl || '').trim();
-  if (!trimmed) return { kind: 'file', src: '' };
-  const src = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  let url: URL;
-  try { url = new URL(src); } catch { return { kind: 'file', src }; }
-  const host = url.hostname.replace(/^www\.|^m\./, '').toLowerCase();
-
-  if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
-    const id = url.searchParams.get('v')
-      || url.pathname.match(/^\/(?:embed|shorts|live|v)\/([\w-]{6,})/)?.[1];
-    if (id) return { kind: 'embed', src: `https://www.youtube-nocookie.com/embed/${id}?rel=0&enablejsapi=1` };
-  }
-  if (host === 'youtu.be') {
-    const id = url.pathname.slice(1).split('/')[0];
-    if (id) return { kind: 'embed', src: `https://www.youtube-nocookie.com/embed/${id}?rel=0&enablejsapi=1` };
-  }
-  if (host === 'vimeo.com' || host === 'player.vimeo.com') {
-    const id = url.pathname.match(/(\d+)/)?.[1];
-    if (id) return { kind: 'embed', src: `https://player.vimeo.com/video/${id}?api=1` };
-  }
-  if (host === 'drive.google.com') {
-    const id = url.pathname.match(/\/file\/d\/([^/]+)/)?.[1] || url.searchParams.get('id');
-    if (id) return { kind: 'embed', src: `https://drive.google.com/file/d/${id}/preview` };
-  }
-  if (host === 'dailymotion.com' || host === 'dai.ly') {
-    const id = (host === 'dai.ly' ? url.pathname.slice(1) : url.pathname.match(/\/video\/([^_/]+)/)?.[1]);
-    if (id) return { kind: 'embed', src: `https://www.dailymotion.com/embed/video/${id}` };
-  }
-  return { kind: 'file', src };
-}
 
 interface VideoPlayerProps {
   lesson: Lesson;
@@ -109,14 +77,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const warnSeek = () => setSeekWarning('ไม่สามารถลากข้ามไปส่วนที่ยังไม่ได้ดูได้ กรุณาดูตามลำดับ (ลากย้อนกลับได้เสมอ)');
   const clampSeek = (t: number) => freeSeek ? t : Math.min(t, maxWatchedRef.current);
   const watchedEnough = (dur: number) => freeSeek || (dur > 0 && watchedSecsRef.current >= dur * REQUIRED_RATIO && maxWatchedRef.current >= dur * REQUIRED_RATIO);
-  // ตั้งตอนข้ามบทอัตโนมัติ เพื่อให้บทถัดไปเริ่มเล่นเอง (component ถูก remount ด้วย key=videoUrl)
-  const [autoplayNext] = useState(() => {
-    try {
-      const flag = sessionStorage.getItem('bbflex-autoplay-next') === '1';
-      if (flag) sessionStorage.removeItem('bbflex-autoplay-next');
-      return flag;
-    } catch { return false; }
-  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(lesson.durationMinutes * 60);
@@ -271,10 +231,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
     } catch { /* ออฟไลน์: server จะตรวจซ้ำตอน sync progress อยู่ดี */ }
     setIsPlaying(false);
-    const hasNext = !!onVideoEnded || !!onNextLesson;
-    if (hasNext) {
-      try { sessionStorage.setItem('bbflex-autoplay-next', '1'); } catch { /* ignore */ }
-    }
     if (onVideoEnded) {
       onVideoEnded();
     } else {
@@ -283,16 +239,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // เริ่มเล่นเองเมื่อข้ามบทอัตโนมัติ (ไฟล์วิดีโอตรง)
+  // เปิดบทเรียนแล้วเล่นทันที (คลิกบทเอง / ปุ่มบทถัดไป / จบแล้วไปต่อ — component ถูก remount ด้วย key=videoUrl)
+  // ถ้าเบราว์เซอร์บล็อก autoplay (ยังไม่มีปฏิสัมพันธ์กับเว็บ) ก็แค่ค้างเป็นหยุดชั่วคราว ผู้ใช้กดเล่นเองได้
   useEffect(() => {
-    if (autoplayNext && videoRef.current) {
+    if (videoRef.current) {
       videoRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     }
-  }, [autoplayNext, lesson.videoUrl]);
+  }, [lesson.videoUrl]);
 
   // รับ event "เล่นจบ" จาก YouTube / Vimeo embed
+  // (Drive preview / Dailymotion ไม่มี player API ให้ดัก — ใช้ตัวจับเวลาสำรองใน effect ถัดไป)
   useEffect(() => {
     if (!isEmbed) return;
+    if (!supportsEmbedEndedEvent(videoSource.src)) return;
     const isYouTube = videoSource.src.includes('youtube');
     const isVimeo = videoSource.src.includes('vimeo');
     if (!isYouTube && !isVimeo) return;
@@ -344,6 +303,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
     window.addEventListener('message', onMessage);
     return () => { clearTimeout(timer); clearInterval(resub); window.removeEventListener('message', onMessage); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEmbed, videoSource.src, isCompleted, onVideoEnded, onNextLesson]);
+
+  // สำรองสำหรับ embed ที่ไม่มี event "เล่นจบ" (Google Drive preview / Dailymotion):
+  // iframe ข้ามโดเมนและไม่มี player API จึงดักจบจริงไม่ได้ — นับเวลาเฉพาะตอนแท็บมองเห็นอยู่
+  // แล้วจบอัตโนมัติ (mark complete + ไปบทถัดไป) เมื่อดูครบความยาวบท เหมือนเจ้าอื่น
+  useEffect(() => {
+    if (!isEmbed) return;
+    if (supportsEmbedEndedEvent(videoSource.src)) return;
+    const total = embedDurationRef.current || lesson.durationMinutes * 60;
+    if (!(total > 0)) return;
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (endedFiredRef.current) return;
+      embedWatchedRef.current = Math.min(total, embedWatchedRef.current + 1);
+      setEmbedElapsed(embedWatchedRef.current);
+      if (embedWatchedRef.current >= total) handleVideoEnded();
+    }, 1000);
+    return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEmbed, videoSource.src, isCompleted, onVideoEnded, onNextLesson]);
 
@@ -495,7 +473,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <iframe
             ref={iframeRef}
             key={videoSource.src}
-            src={autoplayNext && videoSource.src.includes('youtube') ? `${videoSource.src}&autoplay=1` : videoSource.src}
+            src={embedAutoplaySrc(videoSource.src)}
             title={lesson.title}
             className="absolute inset-0 w-full h-full"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -646,7 +624,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </h1>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           {onOpenNotesSidebar && (
             <button
               onClick={onOpenNotesSidebar}

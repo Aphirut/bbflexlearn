@@ -450,6 +450,8 @@ const app = new Elysia()
 const distDir = `${import.meta.dir}/../dist`;
 const picDir = `${import.meta.dir}/../pic`;
 const uploadsDir = `${import.meta.dir}/../uploads`;
+// static plugin เปิดโฟลเดอร์ไม่อยู่แล้วล้ม จึงต้องสร้างก่อน mount (fresh clone ไม่มีโฟลเดอร์นี้)
+await Bun.$`mkdir -p ${picDir} ${uploadsDir}`.quiet();
 // Bun.write สร้างโฟลเดอร์แม่ให้เองตอนอัปโหลดไฟล์อยู่แล้ว
 app.use(staticPlugin({ assets: picDir, prefix: '/pic' }));
 app.use(staticPlugin({ assets: uploadsDir, prefix: '/uploads' }));

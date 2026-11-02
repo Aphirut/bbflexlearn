@@ -11,3 +11,5 @@ coverage/
 !/pic/.gitkeep
 /uploads/*
 !/uploads/.gitkeep
+# Local dev database (see README; system MariaDB on 3306 belongs to another project)
+/.mysql-data/

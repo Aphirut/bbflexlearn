@@ -226,17 +226,17 @@ function MainApp() {
                     </div>
 
                     {/* Quantitative Proof Strip */}
-                    <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-800 text-slate-300">
-                      <div>
-                        <div className="text-lg sm:text-2xl font-bold font-mono text-white tabular-nums">12,500+</div>
+                    <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-6 border-t border-slate-800 text-slate-300">
+                      <div className="min-w-0">
+                        <div className="text-base sm:text-2xl font-bold font-mono text-white tabular-nums">12,500+</div>
                         <div className="text-[11px] text-slate-400">ผู้เรียนจบหลักสูตร</div>
                       </div>
-                      <div>
-                        <div className="text-lg sm:text-2xl font-bold font-mono text-emerald-400 tabular-nums">98.4%</div>
+                      <div className="min-w-0">
+                        <div className="text-base sm:text-2xl font-bold font-mono text-emerald-400 tabular-nums">98.4%</div>
                         <div className="text-[11px] text-slate-400">ความพึงพอใจเนื้อหา</div>
                       </div>
-                      <div>
-                        <div className="text-lg sm:text-2xl font-bold font-mono text-amber-400 tabular-nums">100%</div>
+                      <div className="min-w-0">
+                        <div className="text-base sm:text-2xl font-bold font-mono text-amber-400 tabular-nums">100%</div>
                         <div className="text-[11px] text-slate-400">ออกใบประกาศอัตโนมัติ</div>
                       </div>
                     </div>
