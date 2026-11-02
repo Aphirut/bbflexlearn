@@ -33,6 +33,12 @@ export function gradeQuiz(
       if (typeof studentAns === "number" && studentAns === q.correctIndex) {
         earnedPoints += qMaxPoints;
       }
+    } else if (qType === "matching") {
+      // จับคู่: studentAns[li] = index ของคู่ขวาที่เลือกให้รายการซ้าย li — ให้คะแนนเป็นสัดส่วนตามจำนวนคู่ที่ถูก
+      const pairs = q.matchPairs || [];
+      const picks = Array.isArray(studentAns) ? (studentAns as unknown[]) : [];
+      const correct = pairs.reduce((sum, _p, li) => sum + (picks[li] === li ? 1 : 0), 0);
+      if (pairs.length > 0) earnedPoints += qMaxPoints * (correct / pairs.length);
     } else if (qType === "multiple_select") {
       const correct = (q.correctIndices || []).slice().sort();
       const userSelected = (Array.isArray(studentAns) ? (studentAns as number[]) : []).slice().sort();

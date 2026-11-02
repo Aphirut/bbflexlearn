@@ -90,8 +90,9 @@ export type QuizQuestionType =
   | 'multiple_choice'    // ปรนัย 4 ตัวเลือก
   | 'true_false'         // ปรนัย ถูก/ผิด
   | 'multiple_select'    // ปรนัย เลือกได้หลายข้อ
-  | 'subjective_short'   // อัตนัย ตอบสั้น/เติมคำ
-  | 'subjective_essay';  // อัตนัย ความเรียง/วิเคราะห์ พร้อมเกณฑ์ Rubric
+  | 'matching'           // จับคู่ ผู้เรียนเลือกคู่ของแต่ละรายการซ้าย (ให้คะแนนเป็นสัดส่วนตามจำนวนคู่ที่ถูก)
+  | 'subjective_short'   // อัตนัย ตอบสั้น/เติมคำ (ตรวจอัตโนมัติจากคำสำคัญ/คำตอบตัวอย่าง)
+  | 'subjective_essay';  // อัตนัย ความเรียง/วิเคราะห์ พร้อมเกณฑ์ Rubric (ครูตรวจ ไม่นับคะแนนอัตโนมัติ)
 
 export interface QuizQuestion {
   id: string;
@@ -107,6 +108,8 @@ export interface QuizQuestion {
   keywords?: string[]; // คำสำคัญสำหรับการตรวจอัตโนมัติหรือประเมินเบื้องต้น
   rubricGuide?: string; // คำอธิบายเกณฑ์การให้คะแนน (Rubric) เช่น ความถูกต้อง 3 คะแนน, การยกตัวอย่าง 2 คะแนน
   maxWords?: number; // จำนวนคำที่แนะนำ
+  // สำหรับ matching: รายการซ้าย (prompt) คู่กับรายการขวา (answer) ที่ถูกต้อง
+  matchPairs?: { left: string; right: string }[];
 }
 
 export interface Quiz {

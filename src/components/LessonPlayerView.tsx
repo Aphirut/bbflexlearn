@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { VideoPlayer } from './VideoPlayer';
 import { MyNotesSidebar } from './MyNotesSidebar';
 import { getQuizzesAfterUnit } from '../utils/lessonQuizzes';
+import { LessonQuizGateModal } from './LessonQuizGateModal';
 import {
   ArrowLeft,
   CheckCircle,
@@ -16,95 +17,6 @@ import {
   Bookmark,
   ListOrdered
 } from 'lucide-react';
-
-/** แบบทดสอบประจำบท: ตรวจอัตโนมัติ ต้องได้คะแนนถึงเกณฑ์จึงไปวิดีโอถัดไปได้ */
-const LessonQuizGateModal: React.FC<{
-  quiz: Quiz;
-  lessonTitle: string;
-  onPassed: () => void;
-  onClose: () => void;
-}> = ({ quiz, lessonTitle, onPassed, onClose }) => {
-  const [answers, setAnswers] = useState<(number | number[] | string)[]>(() =>
-    quiz.questions.map(q => (q.type === 'multiple_select' ? [] : (q.type === 'subjective_short' || q.type === 'subjective_essay') ? '' : -1))
-  );
-  const [result, setResult] = useState<{ percent: number; passed: boolean } | null>(null);
-
-  const isAnswered = (a: number | number[] | string, type?: string) =>
-    type === 'multiple_select' ? Array.isArray(a) && a.length > 0
-    : (type === 'subjective_short' || type === 'subjective_essay') ? typeof a === 'string' && a.trim().length > 0
-    : typeof a === 'number' && a !== -1;
-  const allAnswered = quiz.questions.every((q, i) => isAnswered(answers[i], q.type));
-
-  const handleSubmit = () => {
-    let earned = 0, total = 0;
-    quiz.questions.forEach((q, i) => {
-      const type = q.type || 'multiple_choice';
-      if (type === 'subjective_short' || type === 'subjective_essay') return; // อัตนัย: ตอบครบถือว่าผ่านส่วนนี้
-      total += q.points || 1;
-      if (type === 'multiple_select') {
-        const sel = [...(answers[i] as number[])].sort().join(',');
-        if (sel === [...(q.correctIndices || [])].sort().join(',')) earned += q.points || 1;
-      } else if (answers[i] === q.correctIndex) earned += q.points || 1;
-    });
-    const percent = total === 0 ? 100 : Math.round((earned / total) * 100);
-    setResult({ percent, passed: percent >= quiz.passingScorePercent });
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={quiz.title}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 space-y-4">
-        <div>
-          <p className="text-[11px] font-semibold text-indigo-600">ทำแบบทดสอบก่อนไปบทถัดไป · {lessonTitle}</p>
-          <h2 className="text-base font-bold text-slate-900 mt-0.5">{quiz.title}</h2>
-          <p className="text-xs text-slate-500 mt-1">เกณฑ์ผ่าน {quiz.passingScorePercent}% — ผ่านแล้วระบบจะพาไปวิดีโอถัดไปอัตโนมัติ</p>
-        </div>
-        {quiz.questions.map((q, qi) => {
-          const type = q.type || 'multiple_choice';
-          return (
-            <div key={q.id} className="space-y-2">
-              <p className="text-sm font-medium text-slate-800">{qi + 1}. {q.question}</p>
-              {(type === 'subjective_short' || type === 'subjective_essay') ? (
-                <textarea value={answers[qi] as string} onChange={e => setAnswers(prev => prev.map((a, i) => i === qi ? e.target.value : a))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" rows={type === 'subjective_essay' ? 4 : 2} placeholder="พิมพ์คำตอบ..." />
-              ) : (
-                <div className="space-y-1.5">
-                  {(q.options || []).map((opt, oi) => {
-                    const selected = type === 'multiple_select' ? (answers[qi] as number[]).includes(oi) : answers[qi] === oi;
-                    return (
-                      <button key={oi} type="button"
-                        onClick={() => setAnswers(prev => prev.map((a, i) => {
-                          if (i !== qi) return a;
-                          if (type === 'multiple_select') { const arr = a as number[]; return arr.includes(oi) ? arr.filter(x => x !== oi) : [...arr, oi]; }
-                          return oi;
-                        }))}
-                        className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${selected ? 'border-indigo-600 bg-indigo-50 text-indigo-800 font-medium' : 'border-slate-200 hover:border-indigo-300'}`}>
-                        {opt}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {result && q.explanation && <p className="text-xs text-slate-500">เฉลย: {q.explanation}</p>}
-            </div>
-          );
-        })}
-        {result && (
-          <div className={`p-3 rounded-xl text-sm font-medium ${result.passed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-            {result.passed ? `ผ่าน! ได้ ${result.percent}% — ไปวิดีโอถัดไปได้เลย` : `ได้ ${result.percent}% ยังไม่ถึงเกณฑ์ ${quiz.passingScorePercent}% กรุณาลองอีกครั้ง`}
-          </div>
-        )}
-        <div className="flex gap-2 justify-end">
-          <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700">กลับไปทบทวนวิดีโอ</button>
-          {result?.passed ? (
-            <button type="button" onClick={onPassed} className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white">ไปวิดีโอถัดไป</button>
-          ) : (
-            <button type="button" onClick={handleSubmit} disabled={!allAnswered} className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40">ส่งคำตอบ</button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 interface LessonPlayerViewProps {
   course: Course;
