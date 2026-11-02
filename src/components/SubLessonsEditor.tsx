@@ -1,13 +1,14 @@
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { SubLesson } from '../types';
+import { QuizBuilderField } from './QuizBuilderField';
 
 interface SubLessonsEditorProps {
   value: SubLesson[];
   onChange: (value: SubLesson[]) => void;
 }
 
-/** ตัวจัดการบทเรียนย่อยภายในบทเรียนหลัก: เพิ่ม/แก้/ลบ รายการย่อย (ชื่อ, ลิงก์วิดีโอ, ความยาว) */
+/** ตัวจัดการบทเรียนย่อยภายในบทเรียนหลัก: เพิ่ม/แก้/ลบ รายการย่อย (ชื่อ, ลิงก์วิดีโอ, ความยาว, แบบทดสอบท้ายตอน) */
 export const SubLessonsEditor: React.FC<SubLessonsEditorProps> = ({ value, onChange }) => {
   const update = (idx: number, patch: Partial<SubLesson>) =>
     onChange(value.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
@@ -88,6 +89,12 @@ export const SubLessonsEditor: React.FC<SubLessonsEditorProps> = ({ value, onCha
                   aria-label="ความยาว (นาที)"
                 />
               </div>
+              <QuizBuilderField
+                compact
+                label="แบบทดสอบท้ายตอนนี้ (ไม่บังคับ)"
+                value={sub.quiz}
+                onChange={quiz => update(idx, { quiz })}
+              />
             </div>
           ))}
         </div>

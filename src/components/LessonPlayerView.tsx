@@ -3,6 +3,7 @@ import { Course, Lesson, Certificate, Quiz } from '../types';
 import { useApp } from '../context/AppContext';
 import { VideoPlayer } from './VideoPlayer';
 import { MyNotesSidebar } from './MyNotesSidebar';
+import { getQuizzesAfterUnit } from '../utils/lessonQuizzes';
 import {
   ArrowLeft,
   CheckCircle,
@@ -231,27 +232,31 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
   useEffect(() => {
     try { localStorage.setItem(passedStorageKey, JSON.stringify(passedQuizIds)); } catch { /* ignore */ }
   }, [passedStorageKey, passedQuizIds]);
-  const [quizGateOpen, setQuizGateOpen] = useState(false);
+  // คิวแบบทดสอบที่ต้องทำให้ผ่านก่อนไปหน่วยถัดไป (ตอนนี้ + ประจำบทถ้าเป็นตอนสุดท้าย)
+  const [gateQueue, setGateQueue] = useState<Quiz[]>([]);
   const pendingAdvanceRef = React.useRef<(() => void) | null>(null);
 
-  const currentQuiz: Quiz | undefined = activeSubLesson?.quiz || (!activeSubLesson ? currentLesson.quiz : undefined);
-  const quizRequired = !!currentQuiz && currentQuiz.questions.length > 0 && !passedQuizIds.includes(currentQuiz.id);
+  const pendingUnitQuizzes = getQuizzesAfterUnit(currentLesson, activeSubLessonId)
+    .filter(q => !passedQuizIds.includes(q.id));
 
-  /** ถ้ามีแบบทดสอบค้างอยู่ ให้เปิดทำก่อน แล้วค่อยทำ advance ต่อเมื่อผ่าน */
+  /** ถ้ามีแบบทดสอบค้างอยู่ ให้เปิดทำทีละชุดก่อน แล้วค่อยทำ advance ต่อเมื่อผ่านทั้งหมด */
   const withQuizGate = (advance: () => void) => {
-    if (quizRequired) {
-      pendingAdvanceRef.current = advance;
-      setQuizGateOpen(true);
+    if (pendingUnitQuizzes.length === 0) {
+      advance();
       return;
     }
-    advance();
+    pendingAdvanceRef.current = advance;
+    setGateQueue(pendingUnitQuizzes);
   };
 
-  const handleQuizPassed = () => {
-    if (currentQuiz) {
-      setPassedQuizIds(prev => (prev.includes(currentQuiz.id) ? prev : [...prev, currentQuiz.id]));
+  const handleQuizPassed = (quiz: Quiz) => {
+    setPassedQuizIds(prev => (prev.includes(quiz.id) ? prev : [...prev, quiz.id]));
+    const rest = gateQueue.filter(q => q.id !== quiz.id);
+    if (rest.length > 0) {
+      setGateQueue(rest);
+      return;
     }
-    setQuizGateOpen(false);
+    setGateQueue([]);
     const advance = pendingAdvanceRef.current;
     pendingAdvanceRef.current = null;
     advance?.();
@@ -593,12 +598,13 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
           )}
         </div>
       </div>
-      {quizGateOpen && currentQuiz && (
+      {gateQueue.length > 0 && (
         <LessonQuizGateModal
-          quiz={currentQuiz}
+          key={gateQueue[0].id}
+          quiz={gateQueue[0]}
           lessonTitle={playingLesson.title}
-          onPassed={handleQuizPassed}
-          onClose={() => { setQuizGateOpen(false); pendingAdvanceRef.current = null; }}
+          onPassed={() => handleQuizPassed(gateQueue[0])}
+          onClose={() => { setGateQueue([]); pendingAdvanceRef.current = null; }}
         />
       )}
     </div>

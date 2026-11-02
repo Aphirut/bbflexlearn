@@ -49,8 +49,10 @@ import {
 
 import { LessonCoverField, normalizeImageUrl } from './LessonCoverField';
 import { SubLessonsEditor } from './SubLessonsEditor';
+import { QuizBuilderField } from './QuizBuilderField';
+import { cleanQuiz } from '../utils/lessonQuizzes';
 import { LessonMaterialsField } from './LessonMaterialsField';
-import type { SubLesson } from '../types';
+import type { Quiz, SubLesson } from '../types';
 
 interface TeacherStudioProps {
   onSelectCourse?: (course: Course) => void;
@@ -139,6 +141,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
     subLessons: SubLesson[];
     resources: LessonResource[];
     keyTakeawaysText: string;
+    quiz?: Quiz;
   }>({
     title: '',
     description: '',
@@ -492,6 +495,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
       subLessons: l.subLessons || [],
       keyTakeawaysText: (l.keyTakeaways || []).join('\n'),
       resources: l.resources || [],
+      quiz: l.quiz,
     });
     setLessonModalOpen(true);
   };
@@ -513,7 +517,8 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
       coverImageUrl: normalizeImageUrl(lessonForm.coverImageUrl) || undefined,
       subLessons: lessonForm.subLessons
         .filter(s => s.title.trim())
-        .map((s, i) => ({ ...s, title: s.title.trim(), order: i + 1 })),
+        .map((s, i) => ({ ...s, title: s.title.trim(), order: i + 1, quiz: cleanQuiz(s.quiz) })),
+      quiz: cleanQuiz(lessonForm.quiz),
       order: editingLessonIndex !== null ? lessons[editingLessonIndex].order : lessons.length + 1,
       keyTakeaways: takeaways,
       resources: lessonForm.resources,
@@ -2714,6 +2719,12 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
               <SubLessonsEditor
                 value={lessonForm.subLessons}
                 onChange={subLessons => setLessonForm({ ...lessonForm, subLessons })}
+              />
+
+              <QuizBuilderField
+                label="แบบทดสอบท้ายบทเรียน (ทำหลังดูวิดีโอทุกตอนของบทนี้จบ)"
+                value={lessonForm.quiz}
+                onChange={quiz => setLessonForm({ ...lessonForm, quiz })}
               />
 
               <LessonMaterialsField

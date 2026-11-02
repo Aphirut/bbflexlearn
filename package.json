@@ -11,7 +11,7 @@
     "server": "bun server/index.ts",
     "db:create-admin": "bun server/seed.ts",
     "lint": "tsc --noEmit",
-    "test": "bun tests/nav-persistence.test.mjs && bun tests/watch-guard.test.mjs && bun tests/quiz-grading.test.mjs"
+    "test": "bun tests/nav-persistence.test.mjs && bun tests/watch-guard.test.mjs && bun tests/quiz-grading.test.mjs && bun tests/lesson-quizzes.test.mjs"
   },
   "dependencies": {
     "@elysia/static": "^2.0.0-rc.0",
