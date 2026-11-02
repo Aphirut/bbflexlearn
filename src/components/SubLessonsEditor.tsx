@@ -1,14 +1,27 @@
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { SubLesson } from '../types';
+import type { Quiz, QuizQuestion, SubLesson } from '../types';
+import { LessonQuizEditor } from './LessonQuizEditor';
 
 interface SubLessonsEditorProps {
   value: SubLesson[];
   onChange: (value: SubLesson[]) => void;
+  /** แบบทดสอบประจำบทเรียนย่อย (ไม่ส่ง = ซ่อนส่วนแบบทดสอบ) */
+  onQuizChange?: (subId: string, quiz: Quiz | undefined) => void;
+  onAddQuizQuestion?: (subId: string) => void;
+  onEditQuizQuestion?: (subId: string, q: QuizQuestion) => void;
+  onDeleteQuizQuestion?: (subId: string, qId: string) => void;
 }
 
-/** ตัวจัดการบทเรียนย่อยภายในบทเรียนหลัก: เพิ่ม/แก้/ลบ รายการย่อย (ชื่อ, ลิงก์วิดีโอ, ความยาว) */
-export const SubLessonsEditor: React.FC<SubLessonsEditorProps> = ({ value, onChange }) => {
+/** ตัวจัดการบทเรียนย่อยภายในบทเรียนหลัก: เพิ่ม/แก้/ลบ รายการย่อย (ชื่อ, ลิงก์วิดีโอ, ความยาว, แบบทดสอบ) */
+export const SubLessonsEditor: React.FC<SubLessonsEditorProps> = ({
+  value,
+  onChange,
+  onQuizChange,
+  onAddQuizQuestion,
+  onEditQuizQuestion,
+  onDeleteQuizQuestion,
+}) => {
   const update = (idx: number, patch: Partial<SubLesson>) =>
     onChange(value.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
 
@@ -88,6 +101,18 @@ export const SubLessonsEditor: React.FC<SubLessonsEditorProps> = ({ value, onCha
                   aria-label="ความยาว (นาที)"
                 />
               </div>
+              {onQuizChange && onAddQuizQuestion && onEditQuizQuestion && onDeleteQuizQuestion && (
+                <div>
+                  <span className="mb-1 block text-xs font-bold text-slate-700">แบบทดสอบประจำบทนี้</span>
+                  <LessonQuizEditor
+                    quiz={sub.quiz}
+                    onChange={quiz => onQuizChange(sub.id, quiz)}
+                    onAddQuestion={() => onAddQuizQuestion(sub.id)}
+                    onEditQuestion={quest => onEditQuizQuestion(sub.id, quest)}
+                    onDeleteQuestion={qId => onDeleteQuizQuestion(sub.id, qId)}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>

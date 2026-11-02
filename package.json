@@ -12,7 +12,7 @@
     "db:create-admin": "bun server/seed.ts",
     "db:seed": "bun scripts/db-seed.ts",
     "lint": "tsc --noEmit",
-    "test": "bun tests/nav-persistence.test.mjs && bun tests/watch-guard.test.mjs && bun tests/quiz-grading.test.mjs && bun tests/readme-scripts.test.mjs && bun tests/drive-auto-advance.test.mjs && bun tests/lesson-autoplay.test.mjs"
+    "test": "bun tests/nav-persistence.test.mjs && bun tests/watch-guard.test.mjs && bun tests/quiz-grading.test.mjs && bun tests/readme-scripts.test.mjs && bun tests/drive-auto-advance.test.mjs && bun tests/lesson-autoplay.test.mjs && bun tests/material-download.test.mjs && bun tests/lesson-resume.test.mjs && bun tests/lesson-quiz-authoring.test.mjs && bun tests/quiz-gate.test.mjs"
   },
   "dependencies": {
     "@elysia/static": "^2.0.0-rc.0",

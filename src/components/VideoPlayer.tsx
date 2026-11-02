@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Course, Lesson, UserNote } from '../types';
 import { useApp } from '../context/AppContext';
-import { api } from '../api';
+import { api, getToken } from '../api';
 import { resolveVideoSource, supportsEmbedEndedEvent, embedAutoplaySrc } from '../utils/embedPlayback';
+import { buildEmbedSeekCommands } from '../utils/resumePlayback';
 import {
   Play,
   Pause,
@@ -132,6 +133,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => clearInterval(t);
   }, [isEmbed, lesson.videoUrl]);
 
+  // Embed (YouTube/Vimeo): สั่งตัวเล่นข้ามไปจุดที่ค้างไว้
+  // iframe ข้ามโดเมนมักยังไม่พร้อมรับคำสั่งในครั้งแรก จึงลองซ้ำเมื่อ iframe โหลดเสร็จ + อีก 2 ครั้ง
+  const pendingEmbedResumeRef = useRef(0);
+  const embedResumeTimers = useRef<number[]>([]);
+  const attemptEmbedResume = (pos: number) => {
+    const cmds = buildEmbedSeekCommands(videoSource.src, pos);
+    if (!cmds) return;
+    try {
+      const win = iframeRef.current?.contentWindow;
+      if (win) for (const c of cmds) win.postMessage(c.message, c.target);
+    } catch { /* iframe ยังไม่พร้อม — รอรอบถัดไป */ }
+    setResumedFrom(Math.floor(pos));
+  };
+  const scheduleEmbedResume = (pos: number) => {
+    pendingEmbedResumeRef.current = pos;
+    attemptEmbedResume(pos);
+    embedResumeTimers.current.forEach(t => clearTimeout(t));
+    embedResumeTimers.current = [2000, 4000].map(ms => window.setTimeout(() => {
+      if (pendingEmbedResumeRef.current === pos) attemptEmbedResume(pos);
+    }, ms));
+  };
+
   // เรียนต่อจากวินาทีที่ค้างไว้ (ใช้จุดไกลสุดที่เคยดูถึง — ลากเลยจุดนี้ไม่ได้อยู่แล้ว จึงไม่ขัดระบบกันโกง)
   const tryResumeSeek = () => {
     if (resumeAppliedRef.current || freeSeek) return;
@@ -167,13 +190,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setMaxWatched(maxWatchedRef.current); setWatchedSecs(watchedSecsRef.current);
           tryResumeSeek();
           // Embed: สั่งตัวเล่นข้ามไปจุดที่ค้างไว้ (ไม่เกินจุดที่เคยดูถึง จึงไม่เป็นการลากโกง)
+          // iframe มักยังโหลดไม่เสร็จตอนนี้ — scheduleEmbedResume จะลองซ้ำเมื่อ iframe พร้อม
           if (isEmbed && rec.maxWatched > 5 && !resumeAppliedRef.current) {
             resumeAppliedRef.current = true;
-            const win = iframeRef.current?.contentWindow;
-            if (win) {
-              if (videoSource.src.includes('youtube')) win.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [rec.maxWatched, true] }), '*');
-              if (videoSource.src.includes('vimeo')) win.postMessage(JSON.stringify({ method: 'setCurrentTime', value: rec.maxWatched }), '*');
-            }
+            scheduleEmbedResume(rec.maxWatched);
           }
         }
       }).catch(() => { /* ออฟไลน์: ใช้ค่า local ไปก่อน server จะตรวจตอนบันทึก progress อยู่ดี */ });
@@ -201,10 +221,57 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
     endedFiredRef.current = false;
     resumeAppliedRef.current = false;
+    pendingEmbedResumeRef.current = 0;
+    embedResumeTimers.current.forEach(t => clearTimeout(t));
+    embedResumeTimers.current = [];
     lastTimeRef.current = 0;
     embedStartRef.current = Date.now();
     setSeekWarning('');
+    return () => { embedResumeTimers.current.forEach(t => clearTimeout(t)); };
   }, [lesson.id, lesson.videoUrl]);
+
+  // ปิดเบราว์เซอร์/ปิดแท็บแล้วกลับมา: เซฟตำแหน่งล่าสุดทันที (keepalive ส่งถึง server แม้หน้า unload)
+  // ไม่งั้นความคืบหน้า ~5 วิสุดท้ายหาย แล้วเปิดใหม่จะถอยหลัง
+  useEffect(() => {
+    const flush = () => {
+      if (isEmbed) {
+        watchedSecsRef.current = Math.max(watchedSecsRef.current, embedWatchedRef.current);
+        maxWatchedRef.current = Math.max(maxWatchedRef.current, embedWatchedRef.current);
+      }
+      persistWatch();
+      try {
+        const seen = isEmbed ? embedWatchedRef.current : maxWatchedRef.current;
+        if (!(seen > 0)) return;
+        const dur = isEmbed
+          ? (embedDurationRef.current || lesson.durationMinutes * 60)
+          : (videoRef.current?.duration && Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : duration);
+        const token = getToken();
+        fetch(`/api/watch/${courseId}`, {
+          method: 'POST',
+          keepalive: true,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            lessonId: lesson.id,
+            videoUrl: lesson.videoUrl,
+            duration: dur,
+            maxWatched: Math.min(dur || seen, seen),
+            watchedSecs: isEmbed ? Math.min(dur || seen, seen) : watchedSecsRef.current,
+          }),
+        }).catch(() => { /* เน็ตหลุด: ค่าใน localStorage ยัง resume ต่อได้ */ });
+      } catch { /* ignore */ }
+    };
+    const onHidden = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId, lesson.id, lesson.videoUrl, isEmbed]);
 
   const handleVideoEnded = async () => {
     if (endedFiredRef.current) return;
@@ -474,6 +541,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={iframeRef}
             key={videoSource.src}
             src={embedAutoplaySrc(videoSource.src)}
+            onLoad={() => { if (pendingEmbedResumeRef.current > 5) attemptEmbedResume(pendingEmbedResumeRef.current); }}
             title={lesson.title}
             className="absolute inset-0 w-full h-full"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -487,6 +555,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             className="w-full h-full object-contain"
             onLoadedMetadata={() => { const d = videoRef.current?.duration; if (d && Number.isFinite(d)) { setDuration(d); reportActualDuration(d); tryResumeSeek(); } }}
             onTimeUpdate={handleTimeUpdate}
+            onPause={persistWatch}
             onEnded={handleVideoEnded}
             onSeeking={() => { if (!freeSeek && videoRef.current && videoRef.current.currentTime > maxWatchedRef.current + 2) { videoRef.current.currentTime = maxWatchedRef.current; warnSeek(); } }}
             onError={() => setHasError(true)}
@@ -727,14 +796,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   📎 เอกสารและโค้ดตัวอย่างประกอบบทเรียน:
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {lesson.resources.map(res => (
+                  {lesson.resources.map(res => {
+                    const local = res.url.startsWith('/');
+                    const fileName = `${res.title.replace(/[\\/:*?"<>|]/g, '').trim() || 'document'}.pdf`;
+                    return (
                     <a
                       key={res.id}
                       href={res.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download
-                      title={`ดาวน์โหลด ${res.title}`}
+                      {...(local
+                        ? { download: fileName }
+                        : { target: '_blank', rel: 'noopener noreferrer' })}
+                      title={`ดาวน์โหลด ${res.title} (PDF)`}
                       className="p-2.5 rounded-lg border border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors flex items-center justify-between text-xs group"
                     >
                       <div className="flex items-center gap-2 truncate">
@@ -745,7 +817,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         {res.size ? `${res.size} · ดาวน์โหลด` : 'ดาวน์โหลด'}
                       </span>
                     </a>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

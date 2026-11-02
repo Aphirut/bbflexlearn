@@ -3,6 +3,7 @@ import { staticPlugin } from '@elysia/static';
 import { SignJWT, jwtVerify } from 'jose';
 import { z } from 'zod';
 import { migrate } from './db';
+import { materialAttachmentDisposition } from './materialDownload';
 import * as repo from './repo';
 import { advanceWatch, allUnits, applyActualDuration, lessonUnits, verifiedLessonIds, watchKeyFor, type WatchRecord } from './watchGuard';
 import { gradeQuiz } from './grading';
@@ -96,8 +97,20 @@ const app = new Elysia()
       return status(code as 400, error.body as Record<string, string>);
     }
     if (error instanceof Response) return error;
+    // ไฟล์สื่อ/เอกสารที่ถูกลบออกจากดิสก์ (เช่น uploads/*.pdf) ต้องตอบ 404 ไม่ใช่ 500
+    const errorStatus = (error as { status?: unknown })?.status;
+    if (errorStatus === 404) return status(404, { error: 'ไม่พบไฟล์' });
     console.error(error);
     return status(500, { error: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
+  })
+  // เอกสารประกอบบทเรียน (*.pdf ใน /uploads/) สั่งเบราว์เซอร์เซฟเป็นไฟล์ PDF ทันที
+  .onAfterHandle(({ request, set }) => {
+    if (request.method !== 'GET') return;
+    const { pathname } = new URL(request.url);
+    if (pathname.startsWith('/uploads/') && pathname.toLowerCase().endsWith('.pdf')) {
+      const fallback = decodeURIComponent(pathname.split('/').pop() || 'document.pdf');
+      set.headers['content-disposition'] = materialAttachmentDisposition(fallback);
+    }
   })
 
   // ---------- Auth ----------

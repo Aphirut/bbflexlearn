@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp, getCourseCategories } from '../context/AppContext';
 import {
   Course,
+  Quiz,
   QuizQuestion,
   QuizQuestionType,
   Lesson,
@@ -49,6 +50,7 @@ import {
 
 import { LessonCoverField, normalizeImageUrl } from './LessonCoverField';
 import { SubLessonsEditor } from './SubLessonsEditor';
+import { LessonQuizEditor } from './LessonQuizEditor';
 import { LessonMaterialsField } from './LessonMaterialsField';
 import type { SubLesson } from '../types';
 
@@ -138,6 +140,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
     coverImageUrl: string;
     subLessons: SubLesson[];
     resources: LessonResource[];
+    quiz: Quiz | null;
     keyTakeawaysText: string;
   }>({
     title: '',
@@ -147,6 +150,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
     coverImageUrl: '',
     subLessons: [],
     resources: [],
+    quiz: null,
     keyTakeawaysText: ''
   });
 
@@ -206,6 +210,8 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
   // Question Creator Modal
   const [questionModalOpen, setQuestionModalOpen] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  // เป้าหมายของข้อสอบที่กำลังเพิ่ม/แก้: pre/post test เดิม หรือแบบทดสอบประจำบทหลัก/บทย่อย
+  const [questionTarget, setQuestionTarget] = useState<{ kind: 'course' } | { kind: 'lesson' } | { kind: 'sublesson', subId: string }>({ kind: 'course' });
   const [questionForm, setQuestionForm] = useState<{
     question: string;
     type: QuizQuestionType;
@@ -475,6 +481,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
       coverImageUrl: '',
       subLessons: [],
       resources: [],
+      quiz: null,
       keyTakeawaysText: ''
     });
     setLessonModalOpen(true);
@@ -492,6 +499,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
       subLessons: l.subLessons || [],
       keyTakeawaysText: (l.keyTakeaways || []).join('\n'),
       resources: l.resources || [],
+      quiz: l.quiz || null,
     });
     setLessonModalOpen(true);
   };
@@ -517,6 +525,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
       order: editingLessonIndex !== null ? lessons[editingLessonIndex].order : lessons.length + 1,
       keyTakeaways: takeaways,
       resources: lessonForm.resources,
+      quiz: lessonForm.quiz || undefined,
     };
 
     const updatedLessons = editingLessonIndex !== null
@@ -538,8 +547,9 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
   };
 
   // Question helpers
-  const handleOpenAddQuestion = () => {
+  const handleOpenAddQuestion = (target: { kind: 'course' } | { kind: 'lesson' } | { kind: 'sublesson', subId: string } = { kind: 'course' }) => {
     setEditingQuestionId(null);
+    setQuestionTarget(target);
     setQuestionForm({
       question: '',
       type: 'multiple_choice',
@@ -556,8 +566,9 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
     setQuestionModalOpen(true);
   };
 
-  const handleOpenEditQuestion = (q: QuizQuestion) => {
+  const handleOpenEditQuestion = (q: QuizQuestion, target: { kind: 'course' } | { kind: 'lesson' } | { kind: 'sublesson', subId: string } = { kind: 'course' }) => {
     setEditingQuestionId(q.id);
+    setQuestionTarget(target);
     setQuestionForm({
       question: q.question,
       type: q.type || 'multiple_choice',
@@ -605,7 +616,16 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
       maxWords: questionForm.type === 'subjective_essay' ? questionForm.maxWords : undefined
     };
 
-    if (activeQuizTab === 'pre_test') {
+    if (questionTarget.kind === 'lesson') {
+      const qz = lessonForm.quiz;
+      if (qz) {
+        const next = editingQuestionId ? qz.questions.map(q => (q.id === editingQuestionId ? savedQ : q)) : [...qz.questions, savedQ];
+        setLessonForm({ ...lessonForm, quiz: { ...qz, questions: next } });
+      }
+    } else if (questionTarget.kind === 'sublesson') {
+      const sid = questionTarget.subId;
+      setLessonForm({ ...lessonForm, subLessons: lessonForm.subLessons.map(sb => sb.id !== sid ? sb : { ...sb, quiz: sb.quiz ? { ...sb.quiz, questions: editingQuestionId ? sb.quiz.questions.map(q => (q.id === editingQuestionId ? savedQ : q)) : [...sb.quiz.questions, savedQ] } : sb.quiz }) });
+    } else if (activeQuizTab === 'pre_test') {
       if (editingQuestionId) {
         setPreTestQuestions(preTestQuestions.map(q => (q.id === editingQuestionId ? savedQ : q)));
       } else {
@@ -622,8 +642,13 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
     setQuestionModalOpen(false);
   };
 
-  const handleDeleteQuestion = (qId: string) => {
-    if (activeQuizTab === 'pre_test') {
+  const handleDeleteQuestion = (qId: string, target: { kind: 'course' } | { kind: 'lesson' } | { kind: 'sublesson', subId: string } = { kind: 'course' }) => {
+    if (target.kind === 'lesson') {
+      if (lessonForm.quiz) setLessonForm({ ...lessonForm, quiz: { ...lessonForm.quiz, questions: lessonForm.quiz.questions.filter(q => q.id !== qId) } });
+    } else if (target.kind === 'sublesson') {
+      const sid = target.subId;
+      setLessonForm({ ...lessonForm, subLessons: lessonForm.subLessons.map(sb => sb.id !== sid || !sb.quiz ? sb : { ...sb, quiz: { ...sb.quiz, questions: sb.quiz.questions.filter(q => q.id !== qId) } }) });
+    } else if (activeQuizTab === 'pre_test') {
       setPreTestQuestions(preTestQuestions.filter(q => q.id !== qId));
     } else {
       setPostTestQuestions(postTestQuestions.filter(q => q.id !== qId));
@@ -1422,7 +1447,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
 
                 <button
                   type="button"
-                  onClick={handleOpenAddQuestion}
+                  onClick={() => handleOpenAddQuestion()}
                   className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white text-xs font-bold rounded-xl hover:from-indigo-500 hover:to-blue-500 transition-all flex items-center gap-1.5 shadow"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -2714,7 +2739,22 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
               <SubLessonsEditor
                 value={lessonForm.subLessons}
                 onChange={subLessons => setLessonForm({ ...lessonForm, subLessons })}
+                onQuizChange={(subId, quiz) => setLessonForm({ ...lessonForm, subLessons: lessonForm.subLessons.map(sb => (sb.id === subId ? { ...sb, quiz } : sb)) })}
+                onAddQuizQuestion={subId => handleOpenAddQuestion({ kind: 'sublesson', subId })}
+                onEditQuizQuestion={(subId, quest) => handleOpenEditQuestion(quest, { kind: 'sublesson', subId })}
+                onDeleteQuizQuestion={(subId, qId) => handleDeleteQuestion(qId, { kind: 'sublesson', subId })}
               />
+
+              <div>
+                <span className="mb-1 block text-xs font-bold text-slate-700">แบบทดสอบประจำบทหลัก (ไม่บังคับ — ถ้ามี ผู้เรียนต้องทำผ่านก่อนไปบทถัดไป)</span>
+                <LessonQuizEditor
+                  quiz={lessonForm.quiz || undefined}
+                  onChange={quiz => setLessonForm({ ...lessonForm, quiz: quiz || null })}
+                  onAddQuestion={() => handleOpenAddQuestion({ kind: 'lesson' })}
+                  onEditQuestion={quest => handleOpenEditQuestion(quest, { kind: 'lesson' })}
+                  onDeleteQuestion={qId => handleDeleteQuestion(qId, { kind: 'lesson' })}
+                />
+              </div>
 
               <LessonMaterialsField
                 value={lessonForm.resources}
@@ -2775,7 +2815,7 @@ export const TeacherStudio: React.FC<TeacherStudioProps> = ({ onSelectCourse, on
                   {editingQuestionId ? 'แก้ไขข้อสอบ' : 'สร้างข้อสอบใหม่'}
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  {activeQuizTab === 'pre_test' ? 'แบบทดสอบก่อนเรียน (Pre-test)' : 'แบบทดสอบหลังเรียน (Post-test)'}
+                  {questionTarget.kind === 'lesson' ? `แบบทดสอบประจำบท: ${lessonForm.title || 'บทเรียนหลัก'}` : questionTarget.kind === 'sublesson' ? `แบบทดสอบบทเรียนย่อย: ${lessonForm.subLessons.find(sb => sb.id === questionTarget.subId)?.title || ''}` : activeQuizTab === 'pre_test' ? 'แบบทดสอบก่อนเรียน (Pre-test)' : 'แบบทดสอบหลังเรียน (Post-test)'}
                 </p>
               </div>
               <button

@@ -3,6 +3,7 @@ import { Course, Lesson, Certificate, Quiz } from '../types';
 import { useApp } from '../context/AppContext';
 import { VideoPlayer } from './VideoPlayer';
 import { MyNotesSidebar } from './MyNotesSidebar';
+import { buildPlayUnits, findBlockingUnitIndex, isQuizBlocking, resolvePlayableIndex } from '../utils/quizGate';
 import {
   ArrowLeft,
   CheckCircle,
@@ -223,7 +224,8 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
       }
     : currentLesson;
 
-  // --- ด่านแบบทดสอบประจำบท: ถ้ามีและยังไม่ผ่าน ต้องทำผ่านก่อนไปวิดีโอถัดไป ---
+  // --- ด่านแบบทดสอบประจำบท: หน่วยไหน quiz ยังไม่ผ่าน ห้ามเดินหน้าเลยหน่วยนั้น ---
+  // (ถอยหลังกลับไปทบทวนได้เสมอ) ครอบคลุมปุ่มถัดไป/วิดีโอจบ/สารบัญ/โน้ต
   const passedStorageKey = `bbflex-passed-quizzes:${currentUser.id}:${course.id}`;
   const [passedQuizIds, setPassedQuizIds] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(passedStorageKey) || '[]'); } catch { return []; }
@@ -232,26 +234,87 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
     try { localStorage.setItem(passedStorageKey, JSON.stringify(passedQuizIds)); } catch { /* ignore */ }
   }, [passedStorageKey, passedQuizIds]);
   const [quizGateOpen, setQuizGateOpen] = useState(false);
+  const [gateQuiz, setGateQuiz] = useState<{ quiz: Quiz; title: string } | null>(null);
   const pendingAdvanceRef = React.useRef<(() => void) | null>(null);
+  // กระจกของ passedQuizIds ที่อ่านค่าใหม่สุดได้ทันที (closure ใน retry เกิดก่อน setState จะค้างค่าเก่า)
+  const passedRef = React.useRef<string[]>(passedQuizIds);
+  useEffect(() => { passedRef.current = passedQuizIds; }, [passedQuizIds]);
 
-  const currentQuiz: Quiz | undefined = activeSubLesson?.quiz || (!activeSubLesson ? currentLesson.quiz : undefined);
-  const quizRequired = !!currentQuiz && currentQuiz.questions.length > 0 && !passedQuizIds.includes(currentQuiz.id);
+  const playUnits = buildPlayUnits(course.lessons);
+  const currentUnitIdx = Math.max(0, playUnits.findIndex(
+    u => u.lessonId === activeLessonId && (u.subId ?? null) === activeSubLessonId));
 
-  /** ถ้ามีแบบทดสอบค้างอยู่ ให้เปิดทำก่อน แล้วค่อยทำ advance ต่อเมื่อผ่าน */
-  const withQuizGate = (advance: () => void) => {
-    if (quizRequired) {
-      pendingAdvanceRef.current = advance;
-      setQuizGateOpen(true);
+  /** เปิดด่านสอบของหน่วยที่ค้าง แล้วทำ retry ต่อเมื่อผ่าน */
+  const openGateFor = (quiz: Quiz, title: string, retry: () => void) => {
+    setGateQuiz({ quiz, title });
+    pendingAdvanceRef.current = retry;
+    setQuizGateOpen(true);
+  };
+
+  const navigateTo = (lessonId: string, subId: string | null, after?: () => void) => {
+    setActiveLessonId(lessonId);
+    setActiveSubLessonId(subId);
+    after?.();
+  };
+
+  /** ย้ายไปหน่วยเป้าหมาย: หน่วยที่ไม่มีลิงก์วิดีโอให้ข้ามไปเลย, เดินหน้าต้องผ่านด่าน quiz ทุกหน่วยที่ข้าม ถอยหลังทบทวนได้เสมอ */
+  const requestNavigate = (toLessonId: string, toSubId: string | null, after?: () => void) => {
+    const toIdx = playUnits.findIndex(u => u.lessonId === toLessonId && (u.subId ?? null) === (toSubId ?? null));
+    if (toIdx < 0) { navigateTo(toLessonId, toSubId, after); return; }
+    if (toIdx <= currentUnitIdx) {
+      const back = resolvePlayableIndex(playUnits, toIdx, -1);
+      if (back < 0) { navigateTo(toLessonId, toSubId, after); return; }
+      const t = playUnits[back];
+      navigateTo(t.lessonId, t.subId, after);
+      return;
+    }
+    const resolved = resolvePlayableIndex(playUnits, toIdx, 1);
+    if (resolved < 0) { navigateTo(toLessonId, toSubId, after); return; }
+    const blocked = findBlockingUnitIndex(playUnits, currentUnitIdx, resolved, passedRef.current);
+    const unit = blocked >= 0 ? playUnits[blocked] : undefined;
+    if (!unit || !unit.quiz) {
+      const t = playUnits[resolved];
+      navigateTo(t.lessonId, t.subId, after);
+      return;
+    }
+    openGateFor(unit.quiz, unit.title, () => requestNavigate(toLessonId, toSubId, after));
+  };
+
+  // เปิดมาถึงหน่วยที่ไม่มีวิดีโอ (ค้างจากครั้งก่อน/ครูเพิ่งลบคลิปออก): ข้ามไปหน่วยที่มีวิดีโอทันที
+  const skippedEmptyMountRef = React.useRef(false);
+  useEffect(() => {
+    if (skippedEmptyMountRef.current) return;
+    skippedEmptyMountRef.current = true;
+    if (playUnits[currentUnitIdx]?.hasVideo) return;
+    const fwd = resolvePlayableIndex(playUnits, currentUnitIdx, 1);
+    if (fwd >= 0) { requestNavigate(playUnits[fwd].lessonId, playUnits[fwd].subId); return; }
+    const back = resolvePlayableIndex(playUnits, currentUnitIdx, -1);
+    if (back >= 0) {
+      const t = playUnits[back];
+      navigateTo(t.lessonId, t.subId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** ด่านของหน่วยปัจจุบัน (ใช้ตอนกดติ๊กจบบท / วิดีโอจบก่อนนับว่าจบหน่วย) */
+  const requireCurrentQuizPassed = (advance: () => void) => {
+    const unit = playUnits[currentUnitIdx];
+    if (unit && unit.quiz && isQuizBlocking(unit.quiz, passedRef.current)) {
+      openGateFor(unit.quiz, unit.title, advance);
       return;
     }
     advance();
   };
 
   const handleQuizPassed = () => {
-    if (currentQuiz) {
-      setPassedQuizIds(prev => (prev.includes(currentQuiz.id) ? prev : [...prev, currentQuiz.id]));
+    if (gateQuiz) {
+      // อัปเดต ref ทันทีพร้อม state เพื่อให้ retry ที่รันต่อจากนี้เห็นว่าผ่านแล้ว (ไม่เปิดด่านซ้ำ)
+      const next = passedRef.current.includes(gateQuiz.quiz.id) ? passedRef.current : [...passedRef.current, gateQuiz.quiz.id];
+      passedRef.current = next;
+      setPassedQuizIds(next);
     }
     setQuizGateOpen(false);
+    setGateQuiz(null);
     const advance = pendingAdvanceRef.current;
     pendingAdvanceRef.current = null;
     advance?.();
@@ -259,16 +322,29 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
 
   const advanceToNextLesson = () => {
     if (activeLessonIndex < course.lessons.length - 1) {
-      setActiveLessonId(course.lessons[activeLessonIndex + 1].id);
+      requestNavigate(course.lessons[activeLessonIndex + 1].id, null);
     } else if (allLessonsFinished) {
       onOpenPostTest();
     }
   };
 
-  const handleNextLesson = () => withQuizGate(advanceToNextLesson);
+  const handleNextLesson = () => {
+    if (activeLessonIndex < course.lessons.length - 1) {
+      requestNavigate(course.lessons[activeLessonIndex + 1].id, null);
+      return;
+    }
+    // บทสุดท้าย: ตรวจด่านที่เหลือทั้งหมดก่อนเปิด post-test
+    const blocked = findBlockingUnitIndex(playUnits, currentUnitIdx, playUnits.length, passedRef.current);
+    const unit = blocked >= 0 ? playUnits[blocked] : undefined;
+    if (unit && unit.quiz) {
+      openGateFor(unit.quiz, unit.title, handleNextLesson);
+      return;
+    }
+    advanceToNextLesson();
+  };
 
   // วิดีโอจบ -> (ผ่านแบบทดสอบก่อน ถ้ามี) -> ไปตอนถัดไปทันที (บทเรียนย่อยถัดไปก่อน หมดแล้วจึงไปบทถัดไป)
-  const handleAutoNext = () => withQuizGate(advanceAutoNext);
+  const handleAutoNext = () => requireCurrentQuizPassed(advanceAutoNext);
   const advanceAutoNext = () => {
     // บันทึกวิดีโอปัจจุบันว่าจบแล้ว -> progressPercent คำนวณใหม่และแถบขยับทันทีเมื่อข้ามบท
     const unitKey = activeSubLesson ? `${currentLesson.id}::${activeSubLesson.id}` : currentLesson.id;
@@ -277,29 +353,30 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
     if (activeSubLesson) {
       const subIdx = subs.findIndex(s => s.id === activeSubLesson.id);
       if (subIdx >= 0 && subIdx < subs.length - 1) {
-        setActiveSubLessonId(subs[subIdx + 1].id);
+        requestNavigate(currentLesson.id, subs[subIdx + 1].id);
         return;
       }
       // หมดบทเรียนย่อยแล้ว = จบบทนี้
       if (!isCurrentCompleted) markLessonComplete(course.id, currentLesson.id);
       if (activeLessonIndex < course.lessons.length - 1) {
-        setActiveLessonId(course.lessons[activeLessonIndex + 1].id);
+        requestNavigate(course.lessons[activeLessonIndex + 1].id, null);
       }
       return;
     }
     if (subs.length > 0) {
-      setActiveSubLessonId(subs[0].id);
+      requestNavigate(currentLesson.id, subs[0].id);
       return;
     }
     if (!isCurrentCompleted) markLessonComplete(course.id, currentLesson.id);
     if (activeLessonIndex < course.lessons.length - 1) {
-      setActiveLessonId(course.lessons[activeLessonIndex + 1].id);
+      requestNavigate(course.lessons[activeLessonIndex + 1].id, null);
     }
   };
 
   const handleSeekToNoteTimestamp = (timestampSeconds: number, targetLessonId?: string) => {
     if (targetLessonId && targetLessonId !== activeLessonId) {
-      setActiveLessonId(targetLessonId);
+      requestNavigate(targetLessonId, null, () => setSeekTimestamp({ timestamp: timestampSeconds, key: Date.now() }));
+      return;
     }
     setSeekTimestamp({ timestamp: timestampSeconds, key: Date.now() });
   };
@@ -374,7 +451,7 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
             courseId={course.id}
             courseTitle={course.title}
             isCompleted={isCurrentCompleted}
-            onToggleComplete={() => withQuizGate(() => markLessonComplete(course.id, currentLesson.id))}
+            onToggleComplete={() => requireCurrentQuizPassed(() => markLessonComplete(course.id, currentLesson.id))}
             onNextLesson={activeLessonIndex < course.lessons.length - 1 ? handleNextLesson : undefined}
             onVideoEnded={handleAutoNext}
             onTimeUpdate={(t, d) => {
@@ -429,7 +506,7 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
               currentLesson={currentLesson}
               currentVideoTime={currentVideoTime}
               onSeekToTimestamp={handleSeekToNoteTimestamp}
-              onSelectLesson={(lessonId) => setActiveLessonId(lessonId)}
+              onSelectLesson={(lessonId) => requestNavigate(lessonId, null)}
               onClose={() => setRightSidebarTab('playlist')}
             />
           ) : (
@@ -528,7 +605,7 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
                 return (
                   <div key={lesson.id}>
                   <button
-                    onClick={() => { setActiveLessonId(lesson.id); setActiveSubLessonId(null); }}
+                    onClick={() => requestNavigate(lesson.id, null)}
                     className={`w-full text-left p-3 rounded-xl border transition-all flex items-center justify-between gap-2 ${
                       isSelected
                         ? 'border-indigo-600 bg-indigo-50/70 shadow-sm'
@@ -571,7 +648,7 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
                         return (
                           <button
                             key={sub.id}
-                            onClick={() => { setActiveLessonId(lesson.id); setActiveSubLessonId(sub.id); }}
+                            onClick={() => requestNavigate(lesson.id, sub.id)}
                             className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center gap-2 text-xs transition ${
                               isSubActive ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600 hover:bg-slate-50'
                             }`}
@@ -593,12 +670,13 @@ export const LessonPlayerView: React.FC<LessonPlayerViewProps> = ({
           )}
         </div>
       </div>
-      {quizGateOpen && currentQuiz && (
+      {quizGateOpen && gateQuiz && (
         <LessonQuizGateModal
-          quiz={currentQuiz}
-          lessonTitle={playingLesson.title}
+          key={gateQuiz.quiz.id}
+          quiz={gateQuiz.quiz}
+          lessonTitle={gateQuiz.title}
           onPassed={handleQuizPassed}
-          onClose={() => { setQuizGateOpen(false); pendingAdvanceRef.current = null; }}
+          onClose={() => { setQuizGateOpen(false); setGateQuiz(null); pendingAdvanceRef.current = null; }}
         />
       )}
     </div>
