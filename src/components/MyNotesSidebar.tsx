@@ -1,3 +1,4 @@
+import { downloadNotesPdf } from '../utils/notesPdf';
 import React, { useState, useMemo } from 'react';
 import { Course, Lesson, UserNote } from '../types';
 import { useApp } from '../context/AppContext';
@@ -59,6 +60,7 @@ export const MyNotesSidebar: React.FC<MyNotesSidebarProps> = ({
   const [customTimestamp, setCustomTimestamp] = useState<number | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // Edit Note State
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -175,48 +177,50 @@ export const MyNotesSidebar: React.FC<MyNotesSidebarProps> = ({
   const currentLessonNotesCount = courseNotes.filter(n => n.lessonId === currentLesson.id).length;
   const totalCourseNotesCount = courseNotes.length;
 
-  // Export Notes to Markdown (.md)
-  const handleExportMarkdown = () => {
+  // Export Notes to PDF
+  const handleExportPdf = async () => {
     const notesToExport = filterScope === 'current_lesson'
       ? courseNotes.filter(n => n.lessonId === currentLesson.id)
       : courseNotes;
 
-    if (notesToExport.length === 0) return;
+    if (notesToExport.length === 0 || isExportingPdf) return;
 
-    let md = `# บันทึกการเรียนรู้: ${course.title}\n`;
-    md += `> ผู้เรียน: ${currentUser.name} (${currentUser.email})\n`;
-    md += `> วันที่ส่งออก: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}\n\n`;
-    md += `---\n\n`;
-
-    // Group by lesson
+    // Group by lesson, keep chronological order within each lesson
     const grouped: Record<string, UserNote[]> = {};
     notesToExport.forEach(n => {
       if (!grouped[n.lessonTitle]) grouped[n.lessonTitle] = [];
       grouped[n.lessonTitle].push(n);
     });
 
-    Object.entries(grouped).forEach(([lessonTitle, nList]) => {
-      md += `## 📚 ${lessonTitle}\n\n`;
-      nList.sort((a, b) => a.timestampSeconds - b.timestampSeconds).forEach(n => {
-        md += `### ⏱ [${formatTime(n.timestampSeconds)}] - ${n.createdAt}\n`;
-        if (n.tags && n.tags.length > 0) {
-          md += `**แท็ก:** ${n.tags.join(', ')}\n\n`;
-        }
-        md += `${n.text}\n\n`;
+    setIsExportingPdf(true);
+    try {
+      await downloadNotesPdf({
+        title: `บันทึกการเรียนรู้: ${course.title}`,
+        metaLines: [
+          `ผู้เรียน: ${currentUser.name} (${currentUser.email})`,
+          `วันที่ส่งออก: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+        ],
+        groups: Object.entries(grouped).map(([lessonTitle, nList]) => ({
+          lessonTitle,
+          notes: [...nList]
+            .sort((a, b) => a.timestampSeconds - b.timestampSeconds)
+            .map(n => ({
+              timeLabel: formatTime(n.timestampSeconds),
+              createdAt: n.createdAt,
+              tags: n.tags,
+              text: n.text,
+            })),
+        })),
+        fileName: `BBFlexLearn-Notes-${course.slug || 'course'}.pdf`,
       });
-      md += `---\n\n`;
-    });
-
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `BBFlexLearn-Notes-${course.slug || 'course'}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
-
-    setCopyFeedback('ส่งออกไฟล์ Markdown เรียบร้อย');
-    setTimeout(() => setCopyFeedback(null), 3000);
+      setCopyFeedback('ส่งออกไฟล์ PDF เรียบร้อย');
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      setCopyFeedback('ส่งออก PDF ไม่สำเร็จ กรุณาลองใหม่');
+    } finally {
+      setIsExportingPdf(false);
+      setTimeout(() => setCopyFeedback(null), 3000);
+    }
   };
 
   // Copy All Notes to Clipboard
@@ -619,13 +623,13 @@ export const MyNotesSidebar: React.FC<MyNotesSidebarProps> = ({
       <div className="p-3 border-t border-slate-200/80 bg-slate-50/80 flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-1.5">
           <button
-            onClick={handleExportMarkdown}
-            disabled={courseNotes.length === 0}
+            onClick={handleExportPdf}
+            disabled={courseNotes.length === 0 || isExportingPdf}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-medium text-[11px] transition-colors disabled:opacity-40"
-            title="ส่งออกบันทึกเป็นไฟล์ Markdown (.md)"
+            title="ส่งออกบันทึกเป็นไฟล์ PDF"
           >
             <Download className="w-3.5 h-3.5 text-indigo-600" />
-            <span>ดาวน์โหลด .md</span>
+            <span>{isExportingPdf ? 'กำลังสร้าง PDF...' : 'ดาวน์โหลด PDF'}</span>
           </button>
           <button
             onClick={handleCopyAll}
