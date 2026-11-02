@@ -307,7 +307,7 @@ const app = new Elysia()
     }).safeParse(body);
     if (!p.success) return status(400, { error: 'ข้อมูลไม่ครบถ้วน' });
     if (!(await canManageCourse(me, p.data.courseId))) return status(403, { error: 'ไม่มีสิทธิ์ดำเนินการ' });
-    if (!isAiGradingConfigured()) return status(503, { error: 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY' });
+    if (!isAiGradingConfigured()) return status(503, { error: 'ยังไม่ได้ตั้งค่า TYPHOON_API_KEY' });
 
     const course = await repo.getCourse(p.data.courseId);
     if (!course) return status(404, { error: 'ไม่พบข้อมูล' });

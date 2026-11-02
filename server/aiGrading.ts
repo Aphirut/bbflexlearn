@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import type { QuizQuestion } from '../src/types';
 
 export interface AiGradeSuggestion {
@@ -7,7 +6,9 @@ export interface AiGradeSuggestion {
   comment: string;
 }
 
-const MODEL = Bun.env.GEMINI_GRADING_MODEL || 'gemini-2.5-flash';
+// Typhoon (opentyphoon.ai) ใช้รูปแบบ OpenAI-compatible: POST {base}/chat/completions
+const BASE_URL = (Bun.env.TYPHOON_BASE_URL || 'https://api.opentyphoon.ai/v1').replace(/\/$/, '');
+const MODEL = Bun.env.TYPHOON_GRADING_MODEL || 'typhoon-v2.1-12b-instruct';
 const MAX_ANSWER_CHARS = 4000;
 
 /** อ่านผลลัพธ์จาก AI แล้วบังคับให้อยู่ในช่วง 0..maxScore — ค่าที่อ่านไม่ได้ถือว่าไม่มีข้อเสนอ */
@@ -46,8 +47,14 @@ export function buildGradingPrompt(question: QuizQuestion, maxScore: number, stu
   ].join("\n");
 }
 
-let client: GoogleGenAI | null = null;
-export const isAiGradingConfigured = () => !!Bun.env.GEMINI_API_KEY;
+export const isAiGradingConfigured = () => !!Bun.env.TYPHOON_API_KEY;
+
+/** Typhoon อาจตอบข้อความรอบ ๆ JSON — ดึงก้อน {...} แรกออกมาก่อน parse */
+export function extractJsonObject(text: string): string {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  return start >= 0 && end > start ? text.slice(start, end + 1) : text;
+}
 
 /** ขอข้อเสนอคะแนนจาก AI (ครูยังต้องยืนยันก่อนบันทึกเสมอ) */
 export async function suggestSubjectiveGrade(
@@ -56,11 +63,22 @@ export async function suggestSubjectiveGrade(
   studentAnswer: string,
 ): Promise<AiGradeSuggestion | null> {
   if (!isAiGradingConfigured()) throw new Error('AI_NOT_CONFIGURED');
-  client ??= new GoogleGenAI({ apiKey: Bun.env.GEMINI_API_KEY! });
-  const response = await client.models.generateContent({
-    model: MODEL,
-    contents: buildGradingPrompt(question, maxScore, studentAnswer),
-    config: { responseMimeType: 'application/json', temperature: 0.2 },
+  const res = await fetch(`${BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${Bun.env.TYPHOON_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [{ role: 'user', content: buildGradingPrompt(question, maxScore, studentAnswer) }],
+      temperature: 0.2,
+      max_tokens: 512,
+    }),
+    signal: AbortSignal.timeout(30_000),
   });
-  return parseAiGrade(response.text ?? '', maxScore);
+  if (!res.ok) throw new Error(`Typhoon HTTP ${res.status}`);
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const content = data.choices?.[0]?.message?.content ?? '';
+  return parseAiGrade(extractJsonObject(content), maxScore);
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { parseAiGrade, buildGradingPrompt } from "../server/aiGrading.ts";
+import { parseAiGrade, buildGradingPrompt, extractJsonObject } from "../server/aiGrading.ts";
 
 // ค่าที่ AI ส่งมาต้องถูกบังคับให้อยู่ในช่วง 0..max และปัดเป็นครึ่งคะแนน
 assert.deepEqual(parseAiGrade('{"score": 7.3, "comment": " ดีมาก "}', 10), { score: 7.5, maxScore: 10, comment: "ดีมาก" });
@@ -21,5 +21,8 @@ assert.ok(prompt.includes("คะแนนเต็ม: 5"));
 assert.ok(prompt.includes("ความถูกต้อง 3 คะแนน"));
 const long = buildGradingPrompt({ id: "q", question: "?", explanation: "" }, 1, "a".repeat(10000));
 assert.ok(long.length < 6000);
+
+// Typhoon มักตอบมีข้อความรอบ JSON
+assert.deepEqual(parseAiGrade(extractJsonObject('ได้ผลดังนี้ ```json\n{"score": 2, "comment": "ok"}\n```'), 3), { score: 2, maxScore: 3, comment: "ok" });
 
 console.log("ai-grading tests passed");
